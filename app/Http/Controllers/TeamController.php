@@ -12,8 +12,9 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 class TeamController extends Controller
 {
     /**
-     * team.index
-     * Public list. Filterable by ?game_id, ?organization_id, ?created_by_player_id.
+     * List teams
+     *
+     * Public list. Filterable by `?game_id`, `?organization_id`, `?created_by_player_id`. Soft-deleted teams excluded by default.
      */
     public function index(Request $request): AnonymousResourceCollection
     {
@@ -28,7 +29,9 @@ class TeamController extends Controller
     }
 
     /**
-     * team.show
+     * Show a team
+     *
+     * Public read for a single team by id.
      */
     public function show(Team $team): TeamResource
     {
@@ -36,10 +39,9 @@ class TeamController extends Controller
     }
 
     /**
-     * team.store
-     * Authenticated; the caller must own the player they nominate as creator.
-     * The creator's game_id must match the team's game_id (a Valorant team
-     * can't be created by a Rocket League player profile).
+     * Create a team
+     *
+     * Authenticated; the caller must own the player nominated as creator (`created_by_player_id`). The creator player's `game_id` must match the team's `game_id` — a Valorant team can't be created by a Rocket League player profile. Team names are unique within a game.
      */
     public function store(Request $request): JsonResponse
     {
@@ -52,20 +54,17 @@ class TeamController extends Controller
             'created_by_player_id' => ['required', 'integer', 'exists:players,id'],
         ]);
 
-        // Caller must own the nominated creator player.
         $creator = Player::where('id', $data['created_by_player_id'])
             ->where('user_id', $request->user()->id)
             ->first();
         abort_unless($creator, 403, 'You can only create teams under a player profile you own.');
 
-        // The creator's game must match the team's game.
         abort_unless(
             $creator->game_id === $data['game_id'],
             422,
             'The creator player must belong to the same game as the team.'
         );
 
-        // Surface the team-name uniqueness within game as a 422.
         $request->validate([
             'name' => ['unique:teams,name,NULL,id,game_id,'.$data['game_id']],
         ]);
@@ -76,8 +75,9 @@ class TeamController extends Controller
     }
 
     /**
-     * team.update
-     * Creator OR active captain OR superadmin.
+     * Update a team
+     *
+     * Allowed for the team creator, an active captain, or a superadmin. Patch `name`, `tag`, `logo_url`, `organization_id`. Name uniqueness within game is re-checked excluding the row itself.
      */
     public function update(Request $request, Team $team): TeamResource
     {
@@ -98,9 +98,9 @@ class TeamController extends Controller
     }
 
     /**
-     * team.destroy
-     * Creator OR superadmin only — captains can manage roster but not
-     * dissolve the team. Soft-delete; tournament history stays intact.
+     * Archive a team
+     *
+     * Soft-delete. Creator OR superadmin only — captains can manage the roster but cannot dissolve the team. Tournament history (any past matches the team played) remains resolvable via `withTrashed()`.
      */
     public function destroy(Request $request, Team $team): JsonResponse
     {
@@ -115,9 +115,6 @@ class TeamController extends Controller
         return response()->json(['message' => 'Team archived.']);
     }
 
-    /**
-     * Allow the team creator, an active captain, or a superadmin.
-     */
     private function authorizeTeamAdmin(Request $request, Team $team): void
     {
         $user         = $request->user();

@@ -11,9 +11,9 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 class PlayerController extends Controller
 {
     /**
-     * player.index
-     * Public list of players. Supports ?game_id and ?user_id filters for the
-     * common "players in this game" / "this user's profiles" lookups.
+     * List players
+     *
+     * Public list of player profiles. Supports `?game_id` and `?user_id` filters for the common "players in this game" / "this user's profiles" lookups.
      */
     public function index(Request $request): AnonymousResourceCollection
     {
@@ -27,7 +27,9 @@ class PlayerController extends Controller
     }
 
     /**
-     * player.show
+     * Show a player
+     *
+     * Public read for a single player profile by id.
      */
     public function show(Player $player): PlayerResource
     {
@@ -35,11 +37,9 @@ class PlayerController extends Controller
     }
 
     /**
-     * player.store
-     * Authenticated users create their own player profile (one per game).
-     * The user_id is forced to the caller — no spoofing other users'
-     * profiles. Host-created orphan rows (user_id=null) are out of scope
-     * for the MVP UI.
+     * Create a player profile
+     *
+     * Authenticated users create their own player profile, one per game. The `user_id` is forced to the caller — no spoofing other users' profiles. Two friendly 422 errors: "You already have a player profile for this game" and "That gamertag is taken in this game." Host-created orphan rows (user_id=null) are out of scope for the MVP UI.
      */
     public function store(Request $request): JsonResponse
     {
@@ -51,9 +51,6 @@ class PlayerController extends Controller
 
         $data['user_id'] = $request->user()->id;
 
-        // Two unique constraints to surface as friendly validation errors:
-        //   - (user_id, game_id): you already have a profile for this game
-        //   - (game_id, gamertag): that gamertag is taken in this game
         $request->validate([
             'game_id' => ['unique:players,game_id,NULL,id,user_id,'.$data['user_id']],
         ], [
@@ -69,8 +66,9 @@ class PlayerController extends Controller
     }
 
     /**
-     * player.update
-     * Owner-only — players are personal identity records.
+     * Update a player profile
+     *
+     * Owner-only — players are personal identity records, no admin override. Patch `gamertag` (uniqueness re-checked within the player's game) or `rank_or_tier`.
      */
     public function update(Request $request, Player $player): PlayerResource
     {
@@ -93,8 +91,9 @@ class PlayerController extends Controller
     }
 
     /**
-     * player.destroy
-     * Owner-only.
+     * Delete a player profile
+     *
+     * Owner-only. Hard-delete; will fail with a foreign-key violation if the player is on any team's roster (TeamMember.player_id is RESTRICT) or registered for any tournament.
      */
     public function destroy(Request $request, Player $player): JsonResponse
     {

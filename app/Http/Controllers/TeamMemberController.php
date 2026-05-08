@@ -13,8 +13,9 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 class TeamMemberController extends Controller
 {
     /**
-     * teamMember.index
-     * Public roster list with optional ?active=1 filter.
+     * List team members
+     *
+     * Public roster list (current + historical). Pass `?active=1` to filter to currently-active members (`left_at` is null). Sorted by `joined_at`.
      */
     public function index(Request $request, Team $team): AnonymousResourceCollection
     {
@@ -27,9 +28,9 @@ class TeamMemberController extends Controller
     }
 
     /**
-     * teamMember.store
-     * Add a player to the roster. Allowed for the team creator, an active
-     * captain, or a superadmin. The player's game_id must match the team's.
+     * Add a roster member
+     *
+     * Add a player to the team's roster. Allowed for the team creator, an active captain, or a superadmin. The player's `game_id` must match the team's. Roles: `captain`, `player`, `substitute`. Re-adding a currently-active player returns 422; re-adding a player who left earlier creates a fresh roster row.
      */
     public function store(Request $request, Team $team): JsonResponse
     {
@@ -47,7 +48,6 @@ class TeamMemberController extends Controller
             'The player must belong to the same game as the team.'
         );
 
-        // No double-active membership for the same player on the same team.
         $alreadyActive = $team->members()
             ->where('player_id', $data['player_id'])
             ->whereNull('left_at')
@@ -65,12 +65,9 @@ class TeamMemberController extends Controller
     }
 
     /**
-     * teamMember.update
-     * Two paths:
-     *  - The player themselves (any of their players matches member.player_id)
-     *    can set left_at to leave the team.
-     *  - A team admin (creator / captain / superadmin) can change role or
-     *    set left_at.
+     * Update a roster member
+     *
+     * Two caller paths. A team admin (creator, active captain, or superadmin) may patch role and/or `left_at`. The player whose membership it is may patch `left_at` to leave the team — but cannot change their role; that's an admin-only action. Cross-team tampering returns 404.
      */
     public function update(Request $request, Team $team, TeamMember $member): TeamMemberResource
     {
@@ -87,8 +84,6 @@ class TeamMemberController extends Controller
             $rules['role']    = ['sometimes', 'string', 'in:captain,player,substitute'];
             $rules['left_at'] = ['sometimes', 'nullable', 'date'];
         } else {
-            // Player-leaving path: only left_at can be set, and only to a date
-            // (no rejoining via this endpoint — that's a fresh row).
             $rules['left_at'] = ['required', 'date'];
             if ($request->has('role')) {
                 abort(403, 'Only a team admin may change a member\'s role.');
@@ -102,9 +97,9 @@ class TeamMemberController extends Controller
     }
 
     /**
-     * teamMember.destroy
-     * Hard-delete a roster row. Creator / superadmin only — captains use
-     * the PATCH-left_at path to mark members as left, preserving history.
+     * Hard-delete a roster row
+     *
+     * Creator or superadmin only. Captains and the player themselves should use PATCH with `left_at` to preserve history; this endpoint is for accidentally-added members where keeping the row would be misleading.
      */
     public function destroy(Request $request, Team $team, TeamMember $member): JsonResponse
     {

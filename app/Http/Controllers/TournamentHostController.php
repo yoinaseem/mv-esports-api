@@ -11,9 +11,9 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 class TournamentHostController extends Controller
 {
     /**
-     * tournamentHost.index
-     * Authenticated list. Filterable by ?status=pending|approved|suspended
-     * for the manager's review queue.
+     * List tournament hosts
+     *
+     * Public list. Filterable by `?status=pending|approved|suspended` for the manager review queue. Sorted newest-application first.
      */
     public function index(Request $request): AnonymousResourceCollection
     {
@@ -26,7 +26,9 @@ class TournamentHostController extends Controller
     }
 
     /**
-     * tournamentHost.show
+     * Show a tournament host
+     *
+     * Public read for a single tournament-host record.
      */
     public function show(TournamentHost $tournamentHost): TournamentHostResource
     {
@@ -34,10 +36,9 @@ class TournamentHostController extends Controller
     }
 
     /**
-     * tournamentHost.store
-     * Apply for host status. The user_id is forced to the caller; the row
-     * starts as `pending` and waits for a system_manager to approve. Each
-     * user may only have one tournament_hosts row (unique constraint).
+     * Apply for tournament host status
+     *
+     * Authenticated entry point. The `user_id` is forced to the caller; the row starts as `pending` and waits for a system_manager to approve. Each user may only have one tournament_hosts row — a duplicate application returns 422.
      */
     public function store(Request $request): JsonResponse
     {
@@ -47,8 +48,6 @@ class TournamentHostController extends Controller
             'bio'             => ['nullable', 'string', 'max:5000'],
         ]);
 
-        // Unique user_id at the DB level — surface a clean 422 rather than a
-        // 500 from the FK constraint.
         if (TournamentHost::where('user_id', $request->user()->id)->exists()) {
             abort(422, 'You already have a tournament host application or profile.');
         }
@@ -62,17 +61,9 @@ class TournamentHostController extends Controller
     }
 
     /**
-     * tournamentHost.update
-     * Two distinct paths:
-     *  - The host themselves can patch display_name / bio / organization_id.
-     *  - A system_manager / superadmin can patch status (approve / suspend).
-     * Status changes by the host themselves are forbidden.
+     * Update a tournament host
      *
-     * Status transitions sync the `tournaments.create` permission: approving
-     * grants it directly to the host user; any non-approved status revokes
-     * the direct grant. Role-derived grants (superadmin, system_manager) are
-     * untouched by revokePermissionTo, so manager users keep the capability
-     * even if their own host row is suspended.
+     * Two distinct caller paths. The host themselves may patch `display_name`, `bio`, `organization_id`. A `system_manager` / `superadmin` may additionally patch `status` (`pending` → `approved` → `suspended`); status changes by the host themselves are 403. Approving auto-stamps `approved_by_user_id` and `approved_at`. Status transitions sync the `tournaments.create` permission: approving grants it directly; any non-approved status revokes the direct grant. Role-derived grants on managers are untouched.
      */
     public function update(Request $request, TournamentHost $tournamentHost): TournamentHostResource
     {
@@ -91,7 +82,6 @@ class TournamentHostController extends Controller
         if ($isManager) {
             $rules['status'] = ['sometimes', 'string', 'in:pending,approved,suspended'];
         } elseif ($request->has('status')) {
-            // Surface a clear 403 instead of silently dropping the field.
             abort(403, 'Only a system manager may change host status.');
         }
 
@@ -115,10 +105,9 @@ class TournamentHostController extends Controller
     }
 
     /**
-     * tournamentHost.destroy
-     * Withdraw an application (own only) or remove (system_manager). Revokes
-     * the directly-granted tournaments.create permission so a withdrawn host
-     * doesn't keep tournament-builder access.
+     * Withdraw / remove a tournament host
+     *
+     * Owner withdraws their own application; a manager can remove any host record. Revokes the directly-granted `tournaments.create` permission so a withdrawn host doesn't keep tournament-builder access. Manager role-derived grants are untouched.
      */
     public function destroy(Request $request, TournamentHost $tournamentHost): JsonResponse
     {
@@ -128,10 +117,6 @@ class TournamentHostController extends Controller
 
         abort_unless($isOwner || $isManager, 403);
 
-        // Revoke the direct grant before the row goes away. Role-derived
-        // grants are untouched (Spatie's revokePermissionTo only removes
-        // direct permissions), so superadmin/system_manager keep the
-        // capability through their role.
         $tournamentHost->user?->revokePermissionTo('tournaments.create');
 
         $tournamentHost->delete();
@@ -154,7 +139,6 @@ class TournamentHostController extends Controller
         if ($status === 'approved') {
             $hostUser->givePermissionTo('tournaments.create');
         } else {
-            // Suspended / pending / anything else → revoke the direct grant.
             $hostUser->revokePermissionTo('tournaments.create');
         }
     }
