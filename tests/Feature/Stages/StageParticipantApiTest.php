@@ -67,6 +67,71 @@ test('admin can add a team participant', function () {
         ->assertJsonPath('data.seed', 1);
 });
 
+test('admin can add a participant when stage has only manual incoming qualifications', function () {
+    $creator    = User::factory()->systemManager()->create();
+    $tournament = Tournament::factory()->draft()->create(['created_by_user_id' => $creator->id]);
+    $stage      = Stage::factory()->for($tournament)->create();
+    \App\Models\StageQualification::factory()->manual()->create([
+        'source_stage_id' => null,
+        'target_stage_id' => $stage->id,
+    ]);
+    $team = Team::factory()->create(['game_id' => $tournament->game_id]);
+
+    $this->actingAs($creator)
+        ->postJson("/api/tournaments/{$tournament->id}/stages/{$stage->id}/participants", [
+            'participant_type' => 'team',
+            'participant_id'   => $team->id,
+            'seed'             => 1,
+        ])
+        ->assertStatus(201);
+});
+
+test('store rejects participant POST when stage has an auto-resolving qualification', function () {
+    $creator    = User::factory()->systemManager()->create();
+    $tournament = Tournament::factory()->draft()->create(['created_by_user_id' => $creator->id]);
+    $stage      = Stage::factory()->for($tournament)->create();
+    \App\Models\StageQualification::factory()->create([
+        'source_stage_id' => null,
+        'target_stage_id' => $stage->id,
+        'rule_type'       => 'top_n',
+        'rule_config'     => ['n' => 8],
+    ]);
+    $team = Team::factory()->create(['game_id' => $tournament->game_id]);
+
+    $this->actingAs($creator)
+        ->postJson("/api/tournaments/{$tournament->id}/stages/{$stage->id}/participants", [
+            'participant_type' => 'team',
+            'participant_id'   => $team->id,
+            'seed'             => 1,
+        ])
+        ->assertStatus(422);
+});
+
+test('store rejects participant POST when ANY incoming qualification is auto-resolving (mixed manual + all)', function () {
+    // If a stage has multiple incoming qualifications and any is non-manual,
+    // the resolver still owns participant population — manual POST rejected.
+    $creator    = User::factory()->systemManager()->create();
+    $tournament = Tournament::factory()->draft()->create(['created_by_user_id' => $creator->id]);
+    $stage      = Stage::factory()->for($tournament)->create();
+    \App\Models\StageQualification::factory()->manual()->create([
+        'source_stage_id' => null,
+        'target_stage_id' => $stage->id,
+    ]);
+    \App\Models\StageQualification::factory()->all()->create([
+        'source_stage_id' => null,
+        'target_stage_id' => $stage->id,
+    ]);
+    $team = Team::factory()->create(['game_id' => $tournament->game_id]);
+
+    $this->actingAs($creator)
+        ->postJson("/api/tournaments/{$tournament->id}/stages/{$stage->id}/participants", [
+            'participant_type' => 'team',
+            'participant_id'   => $team->id,
+            'seed'             => 1,
+        ])
+        ->assertStatus(422);
+});
+
 test('store rejects participant_type that does not match tournament', function () {
     $creator    = User::factory()->systemManager()->create();
     $tournament = Tournament::factory()->playerType()->draft()->create(['created_by_user_id' => $creator->id]);

@@ -36,7 +36,7 @@ class StageParticipantController extends Controller
     /**
      * Add a participant to a stage
      *
-     * Tournament admin only. Used for `manual` qualification flows and host overrides; for `top_n` / `top_n_per_group` / `all` rules, participants are auto-populated by the qualification resolver in commit 9. Structure must be unlocked. Participant must match the tournament's `participant_type` and game; no duplicates per stage.
+     * Tournament admin only. Allowed for stages whose incoming qualification rules are all `manual` (or stages with no incoming qualifications yet). Stages with auto-resolving rules (`top_n` / `top_n_per_group` / `all`) reject direct POST — the future qualification resolver owns the participant set and direct writes would conflict. For surgical overrides after auto-resolution, use PATCH on individual participants. Structure must be unlocked. Participant must match the tournament's `participant_type` and game; no duplicates per stage.
      */
     public function store(CreateStageParticipantRequest $request, Tournament $tournament, Stage $stage): JsonResponse
     {
@@ -47,6 +47,20 @@ class StageParticipantController extends Controller
             StagePolicy::structureUnlocked($tournament),
             422,
             'Stage structure is locked once registration has closed.'
+        );
+
+        // Manual POST is only valid when the stage will not be auto-populated.
+        // If any incoming qualification rule is non-manual, the resolver
+        // owns the participant set — direct POST would conflict. PATCH on
+        // an existing row is still allowed for surgical overrides.
+        $hasAutoResolvingQualification = $stage->incomingQualifications()
+            ->where('rule_type', '!=', 'manual')
+            ->exists();
+
+        abort_if(
+            $hasAutoResolvingQualification,
+            422,
+            'This stage has automatic qualification rules; participants will be populated by the resolver. Use PATCH on individual participants for surgical overrides after resolution.'
         );
 
         $participant = $stage->participants()->create($request->validated());
