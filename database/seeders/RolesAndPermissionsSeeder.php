@@ -11,12 +11,11 @@ use Spatie\Permission\PermissionRegistrar;
  * Roles and permissions for mv-esports.
  *
  * Idempotent: firstOrCreate + syncPermissions, safe to re-run. The catalogue
- * is intentionally minimal on Day 1 — only auth-adjacent permissions are
- * seeded. Tournament / host / organisation permissions land alongside their
- * controllers in later passes.
+ * grows per commit as new modules ship — every domain commit adds the
+ * permissions its controllers consume here.
  *
  * Per DESIGN.md §3 the platform has two named roles plus an implicit "regular
- * user" with no role. App code should check hasRole('manager') /
+ * user" with no role. App code should check hasRole('system_manager') /
  * hasRole('superadmin') for elevated paths.
  */
 class RolesAndPermissionsSeeder extends Seeder
@@ -26,9 +25,16 @@ class RolesAndPermissionsSeeder extends Seeder
         app(PermissionRegistrar::class)->forgetCachedPermissions();
 
         $permissions = [
+            // Auth pass
             'users.view',
             'users.update',
             'roles.manage',
+
+            // Catalog pass
+            // games.manage covers create/update/delete (single perm for the
+            // small surface area; split per-verb if granular grants are ever
+            // needed for an org-staff role).
+            'games.manage',
         ];
 
         foreach ($permissions as $name) {
@@ -38,8 +44,17 @@ class RolesAndPermissionsSeeder extends Seeder
         $superadmin    = Role::firstOrCreate(['name' => 'superadmin',     'guard_name' => 'web']);
         $systemManager = Role::firstOrCreate(['name' => 'system_manager', 'guard_name' => 'web']);
 
+        // Superadmin: everything.
         $superadmin->syncPermissions(Permission::all());
-        $systemManager->syncPermissions(['users.view', 'users.update']);
+
+        // System manager: the system-level approver. Manages the catalog and
+        // the user roster; does NOT auto-manage org-owned resources (org
+        // ownership gates that, per DESIGN.md §5).
+        $systemManager->syncPermissions([
+            'users.view',
+            'users.update',
+            'games.manage',
+        ]);
 
         app(PermissionRegistrar::class)->forgetCachedPermissions();
     }
