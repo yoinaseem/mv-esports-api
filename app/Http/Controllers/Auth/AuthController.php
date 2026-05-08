@@ -12,6 +12,11 @@ use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
 {
+    /**
+     * Register a new user
+     *
+     * Creates a user account, issues a Sanctum personal access token, and returns the token + user payload. Enforces the hard-13 age gate per DESIGN.md §11.1 — parental consent for 13–17s is deferred. `country` defaults to `'MV'` when omitted.
+     */
     public function register(Request $request): JsonResponse
     {
         $data = $request->validate([
@@ -19,15 +24,10 @@ class AuthController extends Controller
             'display_name'  => ['nullable', 'string', 'max:255'],
             'email'         => ['required', 'email', 'unique:users,email'],
             'password'      => ['required', 'string', 'min:8', 'confirmed'],
-            // Hard-13 age gate (DESIGN.md §11.1). Parental consent for 13–17s
-            // is deferred — see plan and ethics roadmap.
             'date_of_birth' => ['required', 'date', 'before:'.now()->subYears(13)->toDateString()],
             'country'       => ['nullable', 'string', 'size:2'],
         ]);
 
-        // Default to 'MV' so the response reflects what gets stored. The DB
-        // default covers the same case but Eloquent's model instance won't
-        // re-fetch it post-insert.
         $data['country'] ??= 'MV';
 
         $user = User::create($data);
@@ -38,6 +38,11 @@ class AuthController extends Controller
         ], 201);
     }
 
+    /**
+     * Log in
+     *
+     * Authenticates with email + password and returns a fresh Sanctum personal access token plus the user payload. Bad credentials produce a 422 (validation-style error) rather than a 401 so the client surfaces it on the email field.
+     */
     public function login(Request $request): JsonResponse
     {
         $request->validate([
@@ -59,6 +64,11 @@ class AuthController extends Controller
         ]);
     }
 
+    /**
+     * Log out
+     *
+     * Revokes the bearer token used for this request. The token is deleted from `personal_access_tokens`; subsequent requests with the same bearer will be unauthenticated.
+     */
     public function logout(Request $request): JsonResponse
     {
         $request->user()->currentAccessToken()->delete();
@@ -66,6 +76,11 @@ class AuthController extends Controller
         return response()->json(['message' => 'Logged out successfully.']);
     }
 
+    /**
+     * Get the authenticated user
+     *
+     * Returns the caller's user payload including roles, effective permissions, and direct permissions. Used by the frontend to gate menus and probe capabilities.
+     */
     public function me(Request $request): JsonResponse
     {
         return response()->json([

@@ -13,8 +13,9 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 class OrganizationMemberController extends Controller
 {
     /**
-     * List members of an organisation. Public read; the org's roster is not
-     * sensitive at MVP. Includes left members; pass ?active=1 to filter.
+     * List org members
+     *
+     * Public list of an organisation's roster. Includes members who have left (`left_at` set) by default — pass `?active=1` to filter to current members.
      */
     public function index(Request $request, Organization $organization): AnonymousResourceCollection
     {
@@ -26,6 +27,11 @@ class OrganizationMemberController extends Controller
         return OrganizationMemberResource::collection($members);
     }
 
+    /**
+     * Add an org member
+     *
+     * Owner-or-superadmin gated. Creates a new membership row with `joined_at = now()` and the requested role. Roles: `owner`, `staff`, `member`.
+     */
     public function store(Request $request, Organization $organization): JsonResponse
     {
         $this->authorizeOwnerOrAdmin($request->user(), $organization);
@@ -45,6 +51,11 @@ class OrganizationMemberController extends Controller
         return (new OrganizationMemberResource($member))->response()->setStatusCode(201);
     }
 
+    /**
+     * Update an org member
+     *
+     * Owner-or-superadmin gated. Patch role or set `left_at` (the historical-roster pattern — preserves the row, marks the member as departed). Cross-org tampering returns 404.
+     */
     public function update(Request $request, Organization $organization, OrganizationMember $member): OrganizationMemberResource
     {
         $this->authorizeOwnerOrAdmin($request->user(), $organization);
@@ -60,6 +71,11 @@ class OrganizationMemberController extends Controller
         return new OrganizationMemberResource($member);
     }
 
+    /**
+     * Remove an org member
+     *
+     * Hard-delete a roster row. Owner or superadmin only. For preserving history, prefer PATCH with `left_at` set instead of this hard removal.
+     */
     public function destroy(Request $request, Organization $organization, OrganizationMember $member): JsonResponse
     {
         $this->authorizeOwnerOrAdmin($request->user(), $organization);

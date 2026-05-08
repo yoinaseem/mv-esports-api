@@ -11,6 +11,11 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
 class OrganizationController extends Controller
 {
+    /**
+     * List organisations
+     *
+     * Public list of all organisations, sorted by name.
+     */
     public function index(): AnonymousResourceCollection
     {
         return OrganizationResource::collection(
@@ -18,16 +23,20 @@ class OrganizationController extends Controller
         );
     }
 
+    /**
+     * Show an organisation
+     *
+     * Public read for a single organisation by id.
+     */
     public function show(Organization $organization): OrganizationResource
     {
         return new OrganizationResource($organization);
     }
 
     /**
-     * organization.store
-     * Any authenticated user can register an organisation. The creator
-     * becomes the owner; further owner changes are out of scope for now
-     * (no transfer-ownership endpoint).
+     * Create an organisation
+     *
+     * Any authenticated user can register an organisation. The creator is recorded as `owner_user_id` and gains exclusive update/delete rights. Further owner changes are out of scope at MVP — there is no transfer-ownership endpoint.
      */
     public function store(Request $request): JsonResponse
     {
@@ -45,6 +54,11 @@ class OrganizationController extends Controller
         return (new OrganizationResource($organization))->response()->setStatusCode(201);
     }
 
+    /**
+     * Update an organisation
+     *
+     * Owner-only mutation; superadmin overrides for moderation cases. system_manager intentionally does NOT auto-manage org-owned resources (DESIGN.md §5: orgs are community-created and gated by ownership).
+     */
     public function update(Request $request, Organization $organization): OrganizationResource
     {
         $this->authorizeOwnerOrAdmin($request->user(), $organization);
@@ -61,6 +75,11 @@ class OrganizationController extends Controller
         return new OrganizationResource($organization);
     }
 
+    /**
+     * Archive an organisation
+     *
+     * Soft-delete. The owner or a superadmin may archive; the row stays recoverable via `withTrashed()`. Affiliated teams have their `organization_id` set to null (per FK) but otherwise survive.
+     */
     public function destroy(Request $request, Organization $organization): JsonResponse
     {
         $this->authorizeOwnerOrAdmin($request->user(), $organization);
@@ -70,11 +89,6 @@ class OrganizationController extends Controller
         return response()->json(['message' => 'Organization archived.']);
     }
 
-    /**
-     * Org-owner OR superadmin can mutate. system_manager intentionally does
-     * NOT auto-manage org-owned resources (DESIGN.md §5: orgs are
-     * community-created and gated by ownership).
-     */
     private function authorizeOwnerOrAdmin(User $user, Organization $organization): void
     {
         $isOwner      = $user->id === $organization->owner_user_id;

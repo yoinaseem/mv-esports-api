@@ -18,8 +18,9 @@ use Illuminate\Support\Facades\DB;
 class TournamentRegistrationController extends Controller
 {
     /**
-     * tournamentRegistration.index
-     * Public list scoped to the parent tournament. Optional ?status filter.
+     * List registrations for a tournament
+     *
+     * Public list scoped to the parent tournament. Optional `?status=pending|approved|rejected|withdrawn` filter. Sorted by `registered_at` (oldest first).
      */
     public function index(Request $request, Tournament $tournament): AnonymousResourceCollection
     {
@@ -32,23 +33,9 @@ class TournamentRegistrationController extends Controller
     }
 
     /**
-     * tournamentRegistration.store
+     * Register a participant
      *
-     * Layered validation:
-     *  - CreateRegistrationRequest: input shape + cross-input invariants
-     *    (participant_type matches tournament, participant exists with
-     *    matching game_id, no participant double-active, no same-user
-     *    double-register).
-     *  - TournamentRegistrationPolicy::register: caller owns the participant.
-     *  - Inside DB::transaction with a Postgres advisory lock keyed on the
-     *    tournament: re-read status (could have closed since the
-     *    FormRequest), re-check capacity, then insert. The lock serialises
-     *    registration writes for THIS tournament without blocking writes
-     *    to any other tournament.
-     *  - Postgres partial unique indexes on (tournament_id, participant)
-     *    and (tournament_id, registered_by_user_id) catch any race where
-     *    two requests slip past the FormRequest before either commits.
-     *    QueryException with SQLSTATE 23505 → 422 with a precise hint.
+     * Submits a participant (team or player) for a tournament. Requires the tournament to be in `RegistrationOpen` and the caller to own the participant (player.user_id, team creator, or active captain). Each user may register at most one participant per tournament; each participant may have at most one active registration. The endpoint is race-safe: wraps in a `DB::transaction` with a Postgres advisory lock keyed on the tournament, re-reads status under the lock, and falls back to two partial unique indexes (`tournament_registrations_participant_active_unique`, `tournament_registrations_user_active_unique`) for any concurrent-write window the application checks miss. Unique-violation errors translate to friendly 422s. Registration types `invite_only` and `signed_only` are schema-only at MVP and return 422.
      */
     public function store(CreateRegistrationRequest $request, Tournament $tournament): JsonResponse
     {
@@ -114,10 +101,9 @@ class TournamentRegistrationController extends Controller
     }
 
     /**
-     * tournamentRegistration.update
-     * The policy admits three caller types: tournament admins, the
-     * registrant, and the participant owner. Admins can change status +
-     * seed; everyone else can only withdraw.
+     * Update a registration
+     *
+     * The policy admits three caller types: tournament admins (host / creator / system role), the registrant (whoever clicked register), and the participant owner (player.user_id, team creator, or active captain). Admins may change `status` (subject to `RegistrationStatus::canTransitionTo`) and assign `seed`. Non-admins may only withdraw and may not set seed.
      */
     public function update(
         UpdateRegistrationRequest $request,
@@ -161,8 +147,9 @@ class TournamentRegistrationController extends Controller
     }
 
     /**
-     * tournamentRegistration.destroy
-     * Hard-delete. Tournament admin only — owners withdraw via PATCH.
+     * Hard-delete a registration
+     *
+     * Tournament admin only — participants/owners withdraw via PATCH with `status=withdrawn` (which preserves the row for history). This endpoint hard-removes the row and is intended for accidentally-submitted registrations where keeping history would be misleading.
      */
     public function destroy(
         Request $request,

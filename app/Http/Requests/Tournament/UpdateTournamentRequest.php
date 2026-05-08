@@ -27,8 +27,9 @@ class UpdateTournamentRequest extends FormRequest
             'slug'                   => ['sometimes', 'string', 'max:255', 'unique:tournaments,slug,'.$tournamentId],
             'organization_id'        => ['nullable', 'integer', 'exists:organizations,id'],
             'description'            => ['nullable', 'string'],
-            'start_date'             => ['sometimes', 'date'],
-            'end_date'               => ['sometimes', 'date', 'after_or_equal:start_date'],
+            // Date-only fields (yyyy-mm-dd) — see CreateTournamentRequest comment.
+            'start_date'             => ['sometimes', 'date_format:Y-m-d'],
+            'end_date'               => ['sometimes', 'date_format:Y-m-d', 'after_or_equal:start_date'],
             'registration_opens_at'  => ['sometimes', 'date'],
             'registration_closes_at' => ['sometimes', 'date', 'after:registration_opens_at'],
             'stream_url'             => ['nullable', 'url', 'max:2048'],

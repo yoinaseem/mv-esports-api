@@ -77,4 +77,9 @@ class Tournament extends Model
     {
         return $this->hasMany(TournamentRegistration::class);
     }
+
+    public function stages(): HasMany
+    {
+        return $this->hasMany(Stage::class)->orderBy('sort_order');
+    }
 }

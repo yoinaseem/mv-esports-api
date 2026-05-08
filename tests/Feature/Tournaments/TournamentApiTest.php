@@ -186,6 +186,42 @@ test('store rejects registration_closes_at after start_date (S2)', function () {
         ->assertJsonValidationErrors(['registration_closes_at']);
 });
 
+test('store accepts a registration_closes_at well before start_date (regression for the after() callback bug)', function () {
+    // Original bug: my after() callback did string concat (`$start.' 23:59:59'`)
+    // which produced unparseable input when start_date arrived as ISO 8601,
+    // making strtotime return false and the rule fire on every request.
+    // Carbon::parse handles both date and datetime input correctly.
+    $manager = User::factory()->systemManager()->create();
+    $game    = Game::factory()->create();
+
+    $payload = array_merge(validTournamentPayload($game), [
+        'start_date'             => '2027-08-24',
+        'end_date'               => '2027-08-26',
+        'registration_opens_at'  => now()->addDays(1)->toIso8601String(),
+        'registration_closes_at' => '2026-08-01T14:15:22Z', // ~1y before start
+    ]);
+
+    $this->actingAs($manager)
+        ->postJson('/api/tournaments/drafts', $payload)
+        ->assertStatus(201);
+});
+
+test('store rejects start_date with a datetime component (must be Y-m-d)', function () {
+    // Tightening to date_format:Y-m-d means ISO 8601 datetime input is
+    // rejected at field-level validation, not silently accepted.
+    $manager = User::factory()->systemManager()->create();
+    $game    = Game::factory()->create();
+
+    $payload = array_merge(validTournamentPayload($game), [
+        'start_date' => '2027-08-24T14:15:22Z',
+    ]);
+
+    $this->actingAs($manager)
+        ->postJson('/api/tournaments/drafts', $payload)
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['start_date']);
+});
+
 // ---------------------------------------------------------------------------
 // PATCH non-status fields
 // ---------------------------------------------------------------------------
@@ -273,12 +309,35 @@ test('reject from a non-pending state is rejected', function () {
         ->assertStatus(422);
 });
 
+test('open-registration rejects a tournament with zero stages', function () {
+    $manager = User::factory()->systemManager()->create();
+    $t       = Tournament::factory()->draft()->create();
+
+    expect($t->stages()->count())->toBe(0); // sanity
+
+    $this->actingAs($manager)
+        ->postJson("/api/tournaments/{$t->id}/open-registration")
+        ->assertStatus(422);
+});
+
+test('open-registration succeeds once at least one stage is configured', function () {
+    $manager = User::factory()->systemManager()->create();
+    $t       = Tournament::factory()->draft()->create();
+    \App\Models\Stage::factory()->for($t)->create(['sort_order' => 0]);
+
+    $this->actingAs($manager)
+        ->postJson("/api/tournaments/{$t->id}/open-registration")
+        ->assertOk()
+        ->assertJsonPath('data.status', \App\Enums\TournamentStatus::RegistrationOpen->value);
+});
+
 test('host can open registration on their draft tournament', function () {
     $host = approvedHostUser();
     $t = Tournament::factory()->draft()->create([
         'host_id'            => $host->tournamentHost->id,
         'created_by_user_id' => $host->id,
     ]);
+    \App\Models\Stage::factory()->for($t)->create(['sort_order' => 0]);
 
     $this->actingAs($host)
         ->postJson("/api/tournaments/{$t->id}/open-registration")
