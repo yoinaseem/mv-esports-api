@@ -56,4 +56,9 @@ class Player extends Model
     {
         return $this->morphMany(TournamentRegistration::class, 'participant');
     }
+
+    public function stageParticipations(): MorphMany
+    {
+        return $this->morphMany(StageParticipant::class, 'participant');
+    }
 }

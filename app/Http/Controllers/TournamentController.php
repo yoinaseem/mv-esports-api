@@ -17,9 +17,9 @@ use Illuminate\Support\Facades\Gate;
 class TournamentController extends Controller
 {
     /**
-     * tournament.index
-     * Public list. Drafts (with or without review) are hidden from
-     * anonymous callers; managers see them via ?include_drafts=1.
+     * List tournaments
+     *
+     * Public list, sorted newest-start-date first. Filterable by `?game_id`, `?status`, `?host_id`, `?organization_id`. Drafts (with or without review) are hidden from anonymous callers by default; managers can see them by adding `?include_drafts=1`.
      */
     public function index(Request $request): AnonymousResourceCollection
     {
@@ -46,10 +46,9 @@ class TournamentController extends Controller
     }
 
     /**
-     * tournament.show
-     * Authorized via TournamentPolicy::view (handles both anonymous public
-     * access and creator/manager draft access). Returns 404 (not 403) on
-     * deny so the existence of a draft isn't leaked to outsiders.
+     * Show a tournament
+     *
+     * Authorized via `TournamentPolicy::view` — handles both anonymous public access and creator/manager draft access. Returns 404 (not 403) on deny so the existence of a draft isn't leaked to outsiders.
      */
     public function show(Request $request, Tournament $tournament): TournamentResource
     {
@@ -59,14 +58,9 @@ class TournamentController extends Controller
     }
 
     /**
-     * tournament.applyAsHost  (POST /api/tournaments/applications)
-     * Host application path. Always lands in DraftPendingReview.
+     * Apply to host a tournament
      *
-     * Caller must either be a system manager (allowed for unification —
-     * managers may pick this path even though /drafts is faster), OR have
-     * an approved tournament_hosts row. A user with tournaments.create
-     * granted directly (admin override, no host row) is rejected — the
-     * "application" framing requires actual host status.
+     * Host application path. Always lands in `DraftPendingReview` — a manager must subsequently approve. The caller must be either a system manager (allowed for unification) or have an approved `tournament_hosts` row. A user with `tournaments.create` granted directly (admin override, no host row) is rejected — the "application" framing requires actual host status.
      */
     public function applyAsHost(CreateTournamentRequest $request): JsonResponse
     {
@@ -93,8 +87,9 @@ class TournamentController extends Controller
     }
 
     /**
-     * tournament.createDraft  (POST /api/tournaments/drafts)
-     * Manager-only entry point. Lands in Draft directly (no review needed).
+     * Create a draft tournament directly
+     *
+     * Manager-only entry point. Lands in `Draft` directly — no review needed because managers are the reviewers. Non-managers are rejected with a 403 redirecting them to `POST /api/tournaments/applications`.
      */
     public function createDraft(CreateTournamentRequest $request): JsonResponse
     {
@@ -117,9 +112,9 @@ class TournamentController extends Controller
     }
 
     /**
-     * tournament.update
-     * Patch non-status fields. Status transitions go through dedicated
-     * verb endpoints.
+     * Update a tournament
+     *
+     * Patch non-status fields (description, dates, stream URL, etc.). Status transitions are not accepted here — submitting `status` returns 403 with a hint pointing at the dedicated verb endpoints (`approve`, `reject`, `open-registration`, `close-registration`, `cancel`).
      */
     public function update(UpdateTournamentRequest $request, Tournament $tournament): TournamentResource
     {
@@ -135,9 +130,9 @@ class TournamentController extends Controller
     }
 
     /**
-     * tournament.destroy
-     * Soft-delete. Allowed only when status is DraftPendingReview or
-     * Cancelled — live tournaments can't be archived.
+     * Archive a tournament
+     *
+     * Soft-delete. Allowed only when status is `DraftPendingReview` or `Cancelled` — live tournaments (registration_open, in_progress, completed) can't be archived. The creator or a superadmin may archive.
      */
     public function destroy(Request $request, Tournament $tournament): JsonResponse
     {
@@ -159,6 +154,11 @@ class TournamentController extends Controller
     // State-transition verb endpoints
     // -----------------------------------------------------------------------
 
+    /**
+     * Approve a tournament
+     *
+     * Manager / superadmin only. Transitions `DraftPendingReview` → `Draft` and stamps `approved_by_user_id` + `approved_at`. Any other starting status returns a 422 from the state-machine guard.
+     */
     public function approve(Request $request, Tournament $tournament): TournamentResource
     {
         $this->authorize('approve', $tournament);
@@ -170,6 +170,11 @@ class TournamentController extends Controller
         return new TournamentResource($tournament);
     }
 
+    /**
+     * Reject a tournament application
+     *
+     * Manager / superadmin only. Transitions `DraftPendingReview` → `Cancelled`. Any other starting status returns 422.
+     */
     public function reject(Request $request, Tournament $tournament): TournamentResource
     {
         $this->authorize('reject', $tournament);
@@ -183,21 +188,40 @@ class TournamentController extends Controller
         return new TournamentResource($tournament);
     }
 
+    /**
+     * Open registration
+     *
+     * Host or manager. Transitions `Draft` → `RegistrationOpen`. Requires the tournament to have at least one stage configured — this is the natural gate for "no half-built tournaments going live." After this, participants can submit registrations via `POST /api/tournaments/{id}/registrations`.
+     */
     public function openRegistration(Request $request, Tournament $tournament): TournamentResource
     {
         $this->authorize('openRegistration', $tournament);
+
+        // State-machine guard first — wrong-state rejection takes precedence
+        // over the missing-stages precondition (a tournament in
+        // DraftPendingReview has the same "no stages" property as a fresh
+        // Draft, but the right error to surface is "approve me first").
+        abort_unless(
+            $tournament->status->canTransitionTo(TournamentStatus::RegistrationOpen),
+            422,
+            sprintf('Cannot transition from %s to registration_open.', $tournament->status->value)
+        );
+
+        abort_if(
+            $tournament->stages()->count() === 0,
+            422,
+            'Cannot open registration: the tournament has no stages defined.'
+        );
+
         $this->transition($tournament, TournamentStatus::RegistrationOpen);
 
         return new TournamentResource($tournament);
     }
 
     /**
-     * Closing registration auto-rejects all pending registrations in a
-     * single transaction so a partial failure doesn't leave the tournament
-     * closed with stale pending rows. The mass update explicitly bumps
-     * updated_at — Laravel's query-builder update() doesn't auto-touch
-     * timestamps, so callers filtering by recent updates would otherwise
-     * miss the auto-rejected rows.
+     * Close registration
+     *
+     * Host or manager. Transitions `RegistrationOpen` → `RegistrationClosed`. Wraps two operations in a `DB::transaction`: the status change AND a mass auto-reject of all `pending` registrations so closing doesn't leave stale pending rows around. Approved registrations are untouched. The mass update explicitly bumps `updated_at` because Laravel's query-builder `update()` doesn't auto-touch timestamps.
      */
     public function closeRegistration(Request $request, Tournament $tournament): TournamentResource
     {
@@ -216,6 +240,11 @@ class TournamentController extends Controller
         return new TournamentResource($tournament);
     }
 
+    /**
+     * Cancel a tournament
+     *
+     * Host or manager. Transitions any non-terminal status (`DraftPendingReview`, `Draft`, `RegistrationOpen`, `RegistrationClosed`, `InProgress`) to `Cancelled`. Once cancelled, the tournament can be soft-deleted via `DELETE /api/tournaments/{id}`.
+     */
     public function cancel(Request $request, Tournament $tournament): TournamentResource
     {
         $this->authorize('cancel', $tournament);

@@ -57,6 +57,11 @@ class Team extends Model
         return $this->morphMany(TournamentRegistration::class, 'participant');
     }
 
+    public function stageParticipations(): MorphMany
+    {
+        return $this->morphMany(StageParticipant::class, 'participant');
+    }
+
     /**
      * Whether the given user owns the player who originally created this
      * team. The creator's authority persists across roster changes — they

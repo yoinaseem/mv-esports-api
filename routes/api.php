@@ -5,6 +5,9 @@ use App\Http\Controllers\GameController;
 use App\Http\Controllers\OrganizationController;
 use App\Http\Controllers\OrganizationMemberController;
 use App\Http\Controllers\PlayerController;
+use App\Http\Controllers\StageController;
+use App\Http\Controllers\StageParticipantController;
+use App\Http\Controllers\StageQualificationController;
 use App\Http\Controllers\TeamController;
 use App\Http\Controllers\TeamMemberController;
 use App\Http\Controllers\TournamentController;
@@ -57,6 +60,14 @@ Route::scopeBindings()->prefix('teams/{team}')->group(function () {
 Route::apiResource('tournaments', TournamentController::class)->only(['index', 'show']);
 Route::scopeBindings()->prefix('tournaments/{tournament}')->group(function () {
     Route::get('registrations', [TournamentRegistrationController::class, 'index']);
+
+    // Stages (public reads)
+    Route::get('stages', [StageController::class, 'index']);
+    Route::get('stages/{stage}', [StageController::class, 'show']);
+    Route::scopeBindings()->prefix('stages/{stage}')->group(function () {
+        Route::get('qualifications', [StageQualificationController::class, 'index']);
+        Route::get('participants',   [StageParticipantController::class, 'index']);
+    });
 });
 
 Route::middleware('auth:sanctum')->group(function () {
@@ -133,5 +144,23 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('registrations', [TournamentRegistrationController::class, 'store']);
         Route::match(['put', 'patch'], 'registrations/{registration}', [TournamentRegistrationController::class, 'update']);
         Route::delete('registrations/{registration}', [TournamentRegistrationController::class, 'destroy']);
+    });
+
+    // Stages + qualifications + participants — all gated via per-resource
+    // policies + the structure-locked-after-RegistrationClosed precondition.
+    Route::scopeBindings()->prefix('tournaments/{tournament}')->group(function () {
+        Route::post('stages',                  [StageController::class, 'store']);
+        Route::post('stages/reorder',          [StageController::class, 'reorder']);
+        Route::match(['put', 'patch'], 'stages/{stage}', [StageController::class, 'update']);
+        Route::delete('stages/{stage}',        [StageController::class, 'destroy']);
+
+        Route::scopeBindings()->prefix('stages/{stage}')->group(function () {
+            Route::post('qualifications', [StageQualificationController::class, 'store']);
+            Route::delete('qualifications/{qualification}', [StageQualificationController::class, 'destroy']);
+
+            Route::post('participants', [StageParticipantController::class, 'store']);
+            Route::match(['put', 'patch'], 'participants/{participant}', [StageParticipantController::class, 'update']);
+            Route::delete('participants/{participant}', [StageParticipantController::class, 'destroy']);
+        });
     });
 });
