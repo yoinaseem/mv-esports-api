@@ -5,6 +5,8 @@ use App\Http\Controllers\GameController;
 use App\Http\Controllers\OrganizationController;
 use App\Http\Controllers\OrganizationMemberController;
 use App\Http\Controllers\PlayerController;
+use App\Http\Controllers\TeamController;
+use App\Http\Controllers\TeamMemberController;
 use App\Http\Controllers\TournamentHostController;
 use Illuminate\Support\Facades\Route;
 
@@ -37,6 +39,14 @@ Route::apiResource('players', PlayerController::class)->only(['index', 'show']);
 Route::apiResource('tournament-hosts', TournamentHostController::class)
     ->parameters(['tournament-hosts' => 'tournamentHost'])
     ->only(['index', 'show']);
+
+// ---------------------------------------------------------------------------
+// Teams + team members — public roster reads, write-gated mutations
+// ---------------------------------------------------------------------------
+Route::apiResource('teams', TeamController::class)->only(['index', 'show']);
+Route::scopeBindings()->prefix('teams/{team}')->group(function () {
+    Route::get('members', [TeamMemberController::class, 'index']);
+});
 
 Route::middleware('auth:sanctum')->group(function () {
     // Games — system-level catalog. Gated by games.manage permission;
@@ -72,4 +82,18 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/tournament-hosts', [TournamentHostController::class, 'store']);
     Route::match(['put', 'patch'], '/tournament-hosts/{tournamentHost}', [TournamentHostController::class, 'update']);
     Route::delete('/tournament-hosts/{tournamentHost}', [TournamentHostController::class, 'destroy']);
+
+    // Teams — creator/captain/superadmin manage at the controller layer.
+    Route::post('/teams', [TeamController::class, 'store']);
+    Route::match(['put', 'patch'], '/teams/{team}', [TeamController::class, 'update']);
+    Route::delete('/teams/{team}', [TeamController::class, 'destroy']);
+
+    // Team members — nested under teams; admin-gated via controller. The
+    // PATCH endpoint also accepts a "self-leave" path for the player whose
+    // membership it is.
+    Route::scopeBindings()->prefix('teams/{team}')->group(function () {
+        Route::post('members', [TeamMemberController::class, 'store']);
+        Route::match(['put', 'patch'], 'members/{member}', [TeamMemberController::class, 'update']);
+        Route::delete('members/{member}', [TeamMemberController::class, 'destroy']);
+    });
 });

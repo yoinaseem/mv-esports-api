@@ -38,4 +38,9 @@ class Game extends Model
     {
         return $this->hasMany(Player::class);
     }
+
+    public function teams(): HasMany
+    {
+        return $this->hasMany(Team::class);
+    }
 }
