@@ -86,6 +86,43 @@ test('admin can patch scheduled_at and best_of', function () {
         ->assertJsonPath('data.best_of', 5);
 });
 
+test('best_of cannot be patched on a terminal-state match', function () {
+    $admin      = User::factory()->systemManager()->create();
+    $tournament = Tournament::factory()->create(['created_by_user_id' => $admin->id]);
+    $stage      = Stage::factory()->for($tournament)->create();
+    $match      = TournamentMatch::factory()->completed()->create(['stage_id' => $stage->id]);
+
+    $this->actingAs($admin)
+        ->patchJson("/api/matches/{$match->id}", ['best_of' => 5])
+        ->assertStatus(422);
+});
+
+test('best_of cannot be patched once any game has been recorded', function () {
+    $admin      = User::factory()->systemManager()->create();
+    $tournament = Tournament::factory()->create(['created_by_user_id' => $admin->id]);
+    $stage      = Stage::factory()->for($tournament)->create();
+    $match      = TournamentMatch::factory()->bestOf(3)->create(['stage_id' => $stage->id]);
+    \App\Models\MatchGame::factory()->create([
+        'match_id'    => $match->id,
+        'game_number' => 1,
+    ]);
+
+    $this->actingAs($admin)
+        ->patchJson("/api/matches/{$match->id}", ['best_of' => 5])
+        ->assertStatus(422);
+});
+
+test('scheduled_at can still be patched on a terminal-state match (no best_of in body)', function () {
+    $admin      = User::factory()->systemManager()->create();
+    $tournament = Tournament::factory()->create(['created_by_user_id' => $admin->id]);
+    $stage      = Stage::factory()->for($tournament)->create();
+    $match      = TournamentMatch::factory()->completed()->create(['stage_id' => $stage->id]);
+
+    $this->actingAs($admin)
+        ->patchJson("/api/matches/{$match->id}", ['scheduled_at' => '2026-07-01T18:00:00Z'])
+        ->assertOk();
+});
+
 test('admin can call walkover from scheduled and the winner is set', function () {
     $admin      = User::factory()->systemManager()->create();
     $tournament = Tournament::factory()->create(['created_by_user_id' => $admin->id]);

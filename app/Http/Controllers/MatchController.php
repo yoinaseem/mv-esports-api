@@ -48,13 +48,28 @@ class MatchController extends Controller
     /**
      * Update a match
      *
-     * Tournament admin only. Patch sparse fields — `scheduled_at` and `best_of`. Status changes happen through verb endpoints (`/walkover`) or as side effects of services in later commits (advancement, bracket generation).
+     * Tournament admin only. Patch sparse fields — `scheduled_at` and `best_of`. Status changes happen through verb endpoints (`/walkover`) or as side effects of services in later commits (advancement, bracket generation). `best_of` is locked once any game has been recorded or the match enters a terminal state, since changing the threshold retroactively would alter how recorded games resolve.
      */
     public function update(UpdateMatchRequest $request, TournamentMatch $match): TournamentMatchResource
     {
         $this->authorize('update', $match);
 
-        $match->update($request->validated());
+        $data = $request->validated();
+
+        if (array_key_exists('best_of', $data)) {
+            abort_if(
+                $match->status->isTerminal(),
+                422,
+                'Cannot change best_of on a match in a terminal state.',
+            );
+            abort_if(
+                $match->games()->exists(),
+                422,
+                'Cannot change best_of after games have been recorded.',
+            );
+        }
+
+        $match->update($data);
 
         return new TournamentMatchResource($match);
     }

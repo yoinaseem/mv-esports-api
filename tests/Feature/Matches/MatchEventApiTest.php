@@ -69,6 +69,14 @@ test('index returns events scoped to the match only (no leakage across matches)'
         ->assertJsonCount(2, 'data');
 });
 
+test('index returns 422 for a malformed since parameter rather than 500', function () {
+    $match = TournamentMatch::factory()->create();
+
+    getJson("/api/matches/{$match->id}/events?since=not-a-date")
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['since']);
+});
+
 test('event payload shape includes the type, payload, created_at, and creator id', function () {
     $match = TournamentMatch::factory()->create();
     MatchEvent::factory()->create([
