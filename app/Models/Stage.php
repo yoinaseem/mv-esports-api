@@ -77,4 +77,9 @@ class Stage extends Model
     {
         return $this->incomingQualifications();
     }
+
+    public function matches(): HasMany
+    {
+        return $this->hasMany(TournamentMatch::class)->orderBy('bracket_round')->orderBy('bracket_position');
+    }
 }

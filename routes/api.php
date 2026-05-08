@@ -4,6 +4,9 @@ use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\GameController;
 use App\Http\Controllers\OrganizationController;
 use App\Http\Controllers\OrganizationMemberController;
+use App\Http\Controllers\MatchController;
+use App\Http\Controllers\MatchEventController;
+use App\Http\Controllers\MatchGameController;
 use App\Http\Controllers\PlayerController;
 use App\Http\Controllers\StageController;
 use App\Http\Controllers\StageParticipantController;
@@ -67,8 +70,15 @@ Route::scopeBindings()->prefix('tournaments/{tournament}')->group(function () {
     Route::scopeBindings()->prefix('stages/{stage}')->group(function () {
         Route::get('qualifications', [StageQualificationController::class, 'index']);
         Route::get('participants',   [StageParticipantController::class, 'index']);
+        Route::get('matches',        [MatchController::class, 'index']);
     });
 });
+
+// Match reads — top-level for direct match access; bracket clients
+// typically navigate from /tournaments/{t}/stages/{s}/matches.
+Route::get('/matches/{match}',          [MatchController::class, 'show']);
+Route::get('/matches/{match}/games',    [MatchGameController::class, 'index']);
+Route::get('/matches/{match}/events',   [MatchEventController::class, 'index']);
 
 Route::middleware('auth:sanctum')->group(function () {
     // Games — system-level catalog. Gated by games.manage permission;
@@ -163,4 +173,14 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::delete('participants/{participant}', [StageParticipantController::class, 'destroy']);
         });
     });
+
+    // Matches — sparse PATCH (scheduled_at, best_of), walkover verb
+    // endpoint, and game-recording flow. Match creation/deletion is owned
+    // by the bracket generator (commit 8) and advancement service (commit
+    // 9), not user requests.
+    Route::match(['put', 'patch'], '/matches/{match}', [MatchController::class, 'update']);
+    Route::post('/matches/{match}/walkover',           [MatchController::class, 'walkover']);
+    Route::post('/matches/{match}/games',              [MatchGameController::class, 'store']);
+    Route::match(['put', 'patch'], '/match-games/{game}', [MatchGameController::class, 'update']);
+    Route::delete('/match-games/{game}',               [MatchGameController::class, 'destroy']);
 });

@@ -2,15 +2,20 @@
 
 namespace App\Providers;
 
+use App\Models\MatchGame;
 use App\Models\Player;
 use App\Models\Team;
+use App\Models\TournamentMatch;
 use App\Models\User;
+use App\Policies\MatchGamePolicy;
+use App\Policies\MatchPolicy;
 use Dedoc\Scramble\Scramble;
 use Dedoc\Scramble\Support\Generator\OpenApi;
 use Dedoc\Scramble\Support\Generator\SecurityScheme;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 
@@ -50,5 +55,13 @@ class AppServiceProvider extends ServiceProvider
             'team'   => Team::class,
             'player' => Player::class,
         ]);
+
+        // Policy auto-discovery resolves App\Policies\{Model}Policy from the
+        // model class name. Our match model is TournamentMatch (since `Match`
+        // is a PHP 8 reserved word), but its policy is MatchPolicy to align
+        // with the controller and route naming. Register explicitly to bridge
+        // the gap.
+        Gate::policy(TournamentMatch::class, MatchPolicy::class);
+        Gate::policy(MatchGame::class, MatchGamePolicy::class);
     }
 }
