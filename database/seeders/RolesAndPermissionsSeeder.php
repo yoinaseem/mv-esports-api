@@ -35,6 +35,14 @@ class RolesAndPermissionsSeeder extends Seeder
             // small surface area; split per-verb if granular grants are ever
             // needed for an org-staff role).
             'games.manage',
+
+            // Identity-capabilities pass
+            // tournaments.create is the "tournament builder" gate. Superadmin
+            // and system_manager get it baked into their roles; regular users
+            // earn it directly when their tournament_hosts row is approved
+            // (and lose it on suspension / deletion). See
+            // TournamentHostController::update + ::destroy.
+            'tournaments.create',
         ];
 
         foreach ($permissions as $name) {
@@ -49,11 +57,14 @@ class RolesAndPermissionsSeeder extends Seeder
 
         // System manager: the system-level approver. Manages the catalog and
         // the user roster; does NOT auto-manage org-owned resources (org
-        // ownership gates that, per DESIGN.md §5).
+        // ownership gates that, per DESIGN.md §5). Gets tournaments.create by
+        // default — they can host tournaments without going through the host
+        // application flow they themselves approve.
         $systemManager->syncPermissions([
             'users.view',
             'users.update',
             'games.manage',
+            'tournaments.create',
         ]);
 
         app(PermissionRegistrar::class)->forgetCachedPermissions();

@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -50,5 +52,20 @@ class User extends Authenticatable
             'date_of_birth'     => 'date',
             'password'          => 'hashed',
         ];
+    }
+
+    public function players(): HasMany
+    {
+        return $this->hasMany(Player::class);
+    }
+
+    /**
+     * Tournament-host capability row. Modelled as hasOne since the
+     * tournament_hosts table has unique(user_id) — a user can be a host or
+     * not, but not "two host applications".
+     */
+    public function tournamentHost(): HasOne
+    {
+        return $this->hasOne(TournamentHost::class);
     }
 }

@@ -38,4 +38,9 @@ class Organization extends Model
     {
         return $this->members()->whereNull('left_at');
     }
+
+    public function tournamentHosts(): HasMany
+    {
+        return $this->hasMany(TournamentHost::class);
+    }
 }

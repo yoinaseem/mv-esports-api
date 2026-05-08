@@ -4,6 +4,8 @@ use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\GameController;
 use App\Http\Controllers\OrganizationController;
 use App\Http\Controllers\OrganizationMemberController;
+use App\Http\Controllers\PlayerController;
+use App\Http\Controllers\TournamentHostController;
 use Illuminate\Support\Facades\Route;
 
 // ---------------------------------------------------------------------------
@@ -25,6 +27,16 @@ Route::apiResource('organizations', OrganizationController::class)->only(['index
 Route::scopeBindings()->prefix('organizations/{organization}')->group(function () {
     Route::get('members', [OrganizationMemberController::class, 'index']);
 });
+
+// ---------------------------------------------------------------------------
+// Identity capabilities — players (per-user-per-game profiles) and
+// tournament_hosts (capability application/approval).
+// Public reads; auth required for any mutation.
+// ---------------------------------------------------------------------------
+Route::apiResource('players', PlayerController::class)->only(['index', 'show']);
+Route::apiResource('tournament-hosts', TournamentHostController::class)
+    ->parameters(['tournament-hosts' => 'tournamentHost'])
+    ->only(['index', 'show']);
 
 Route::middleware('auth:sanctum')->group(function () {
     // Games — system-level catalog. Gated by games.manage permission;
@@ -48,4 +60,16 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::match(['put', 'patch'], 'members/{member}', [OrganizationMemberController::class, 'update']);
         Route::delete('members/{member}', [OrganizationMemberController::class, 'destroy']);
     });
+
+    // Players — owner-gated mutations (controller-level: player.user_id == auth user).
+    Route::post('/players', [PlayerController::class, 'store']);
+    Route::match(['put', 'patch'], '/players/{player}', [PlayerController::class, 'update']);
+    Route::delete('/players/{player}', [PlayerController::class, 'destroy']);
+
+    // Tournament hosts — apply (any auth user, one per user); update / destroy
+    // is owner-OR-manager (controller-level). Status transitions are
+    // manager-only and enforced inside the update action.
+    Route::post('/tournament-hosts', [TournamentHostController::class, 'store']);
+    Route::match(['put', 'patch'], '/tournament-hosts/{tournamentHost}', [TournamentHostController::class, 'update']);
+    Route::delete('/tournament-hosts/{tournamentHost}', [TournamentHostController::class, 'destroy']);
 });

@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Game extends Model
 {
@@ -31,5 +32,10 @@ class Game extends Model
         return [
             'is_active' => 'boolean',
         ];
+    }
+
+    public function players(): HasMany
+    {
+        return $this->hasMany(Player::class);
     }
 }
