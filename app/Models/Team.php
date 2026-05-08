@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Team extends Model
@@ -45,6 +46,15 @@ class Team extends Model
     public function activeMembers(): HasMany
     {
         return $this->members()->whereNull('left_at');
+    }
+
+    /**
+     * Tournament registrations this team has submitted (team-type
+     * tournaments only).
+     */
+    public function tournamentRegistrations(): MorphMany
+    {
+        return $this->morphMany(TournamentRegistration::class, 'participant');
     }
 
     /**

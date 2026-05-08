@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class TournamentHost extends Model
 {
@@ -49,5 +50,10 @@ class TournamentHost extends Model
     public function approver(): BelongsTo
     {
         return $this->belongsTo(User::class, 'approved_by_user_id');
+    }
+
+    public function tournaments(): HasMany
+    {
+        return $this->hasMany(Tournament::class, 'host_id');
     }
 }

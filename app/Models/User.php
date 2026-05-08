@@ -68,4 +68,13 @@ class User extends Authenticatable
     {
         return $this->hasOne(TournamentHost::class);
     }
+
+    /**
+     * Tournaments this user originally created (regardless of host_id —
+     * managers create tournaments without a host_id).
+     */
+    public function createdTournaments(): HasMany
+    {
+        return $this->hasMany(Tournament::class, 'created_by_user_id');
+    }
 }

@@ -48,4 +48,9 @@ class Organization extends Model
     {
         return $this->hasMany(Team::class);
     }
+
+    public function tournaments(): HasMany
+    {
+        return $this->hasMany(Tournament::class);
+    }
 }

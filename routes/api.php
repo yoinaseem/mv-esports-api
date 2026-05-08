@@ -7,7 +7,9 @@ use App\Http\Controllers\OrganizationMemberController;
 use App\Http\Controllers\PlayerController;
 use App\Http\Controllers\TeamController;
 use App\Http\Controllers\TeamMemberController;
+use App\Http\Controllers\TournamentController;
 use App\Http\Controllers\TournamentHostController;
+use App\Http\Controllers\TournamentRegistrationController;
 use Illuminate\Support\Facades\Route;
 
 // ---------------------------------------------------------------------------
@@ -46,6 +48,15 @@ Route::apiResource('tournament-hosts', TournamentHostController::class)
 Route::apiResource('teams', TeamController::class)->only(['index', 'show']);
 Route::scopeBindings()->prefix('teams/{team}')->group(function () {
     Route::get('members', [TeamMemberController::class, 'index']);
+});
+
+// ---------------------------------------------------------------------------
+// Tournaments + registrations — public reads (drafts hidden), state-machine
+// transitions via verb endpoints. Registrations nested under tournament.
+// ---------------------------------------------------------------------------
+Route::apiResource('tournaments', TournamentController::class)->only(['index', 'show']);
+Route::scopeBindings()->prefix('tournaments/{tournament}')->group(function () {
+    Route::get('registrations', [TournamentRegistrationController::class, 'index']);
 });
 
 Route::middleware('auth:sanctum')->group(function () {
@@ -95,5 +106,32 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('members', [TeamMemberController::class, 'store']);
         Route::match(['put', 'patch'], 'members/{member}', [TeamMemberController::class, 'update']);
         Route::delete('members/{member}', [TeamMemberController::class, 'destroy']);
+    });
+
+    // Tournaments — two creation endpoints split by intent:
+    //   POST /tournaments/applications  → host application, lands in DraftPendingReview
+    //   POST /tournaments/drafts        → manager direct create, lands in Draft
+    // Both gated by the tournaments.create permission; the controller
+    // additionally rejects non-managers on /drafts.
+    Route::post('/tournaments/applications', [TournamentController::class, 'applyAsHost'])
+        ->middleware('permission:tournaments.create');
+    Route::post('/tournaments/drafts', [TournamentController::class, 'createDraft'])
+        ->middleware('permission:tournaments.create');
+    Route::match(['put', 'patch'], '/tournaments/{tournament}', [TournamentController::class, 'update']);
+    Route::delete('/tournaments/{tournament}', [TournamentController::class, 'destroy']);
+
+    Route::post('/tournaments/{tournament}/approve',             [TournamentController::class, 'approve']);
+    Route::post('/tournaments/{tournament}/reject',              [TournamentController::class, 'reject']);
+    Route::post('/tournaments/{tournament}/open-registration',   [TournamentController::class, 'openRegistration']);
+    Route::post('/tournaments/{tournament}/close-registration',  [TournamentController::class, 'closeRegistration']);
+    Route::post('/tournaments/{tournament}/cancel',              [TournamentController::class, 'cancel']);
+
+    // Tournament registrations — nested. Store/update/destroy all gate via
+    // controller logic (host/manager for admin paths; participant owner
+    // for self-withdraw).
+    Route::scopeBindings()->prefix('tournaments/{tournament}')->group(function () {
+        Route::post('registrations', [TournamentRegistrationController::class, 'store']);
+        Route::match(['put', 'patch'], 'registrations/{registration}', [TournamentRegistrationController::class, 'update']);
+        Route::delete('registrations/{registration}', [TournamentRegistrationController::class, 'destroy']);
     });
 });
