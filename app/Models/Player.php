@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 
 class Player extends Model
 {
@@ -45,5 +46,14 @@ class Player extends Model
     public function createdTeams(): HasMany
     {
         return $this->hasMany(Team::class, 'created_by_player_id');
+    }
+
+    /**
+     * Tournament registrations this player has submitted (player-type
+     * tournaments only — team-type registrations are on the Team model).
+     */
+    public function tournamentRegistrations(): MorphMany
+    {
+        return $this->morphMany(TournamentRegistration::class, 'participant');
     }
 }
