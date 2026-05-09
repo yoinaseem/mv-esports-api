@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Auth\UpdateMeRequest;
 use App\Http\Resources\UserResource;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
@@ -85,6 +86,29 @@ class AuthController extends Controller
     {
         return response()->json([
             'user' => new UserResource($request->user()),
+        ]);
+    }
+
+    /**
+     * Update the authenticated user's own profile
+     *
+     * Sparse self-edit. Any subset of `name, display_name, email, date_of_birth, country, password`. Email is normalised to lower-case before save (defends against case-variant collisions on Postgres). Password change additionally requires `current_password` in the payload — proving the caller knows the old password defends against a stolen-token rotation. `password_confirmation` is also required when `password` is present.
+     */
+    public function updateMe(UpdateMeRequest $request): JsonResponse
+    {
+        $user = $request->user();
+        $data = $request->validated();
+        // Drop current_password — never persist it, it's only a guard.
+        unset($data['current_password']);
+
+        if (isset($data['email'])) {
+            $data['email'] = strtolower($data['email']);
+        }
+
+        $user->update($data);
+
+        return response()->json([
+            'user' => new UserResource($user->fresh()),
         ]);
     }
 

@@ -31,9 +31,16 @@ class TournamentController extends Controller
             ->when($request->filled('host_id'), fn ($q) => $q->where('host_id', $request->integer('host_id')))
             ->when($request->filled('organization_id'), fn ($q) => $q->where('organization_id', $request->integer('organization_id')));
 
+        // Resolve via the sanctum guard explicitly. This route sits OUTSIDE
+        // the auth:sanctum middleware group (anonymous reads of public
+        // tournaments are allowed), so $request->user() falls back to the
+        // default 'web' guard which is session-based and won't read the
+        // Bearer token a SPA sends. Asking the sanctum guard explicitly
+        // resolves the token-bearer when present and returns null otherwise.
+        $user = $request->user('sanctum');
         $includeDrafts = $request->boolean('include_drafts')
-            && $request->user()
-            && $request->user()->hasAnyRole(['system_manager', 'superadmin']);
+            && $user
+            && $user->hasAnyRole(['system_manager', 'superadmin']);
 
         if (! $includeDrafts) {
             $query->whereNotIn('status', [
@@ -54,7 +61,13 @@ class TournamentController extends Controller
      */
     public function show(Request $request, Tournament $tournament): TournamentResource
     {
-        abort_unless(Gate::allows('view', $tournament), 404);
+        // Same gotcha as index — this route is outside auth:sanctum so
+        // $request->user() returns null for token-bearing SPAs. Resolve
+        // via sanctum explicitly, then evaluate the policy against that
+        // user via Gate::forUser. Without this, the policy sees a null
+        // user and a Draft tournament returns 404 even to its own creator.
+        $user = $request->user('sanctum');
+        abort_unless(Gate::forUser($user)->allows('view', $tournament), 404);
 
         $tournament->load(['game', 'host.user', 'organization']);
 
