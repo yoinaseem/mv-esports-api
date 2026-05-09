@@ -87,4 +87,36 @@ class AuthController extends Controller
             'user' => new UserResource($request->user()),
         ]);
     }
+
+    /**
+     * Get the authenticated user's tournament-host application state
+     *
+     * Returns the caller's `tournament_hosts` row state in a small dedicated payload — kept separate from `/me` so the user resource stays stable. Users without a host application get `has_application: false` and `status: 'none'`. Drives the frontend wizard's "apply to host" / "create tournament" gating.
+     */
+    public function hostStatus(Request $request): JsonResponse
+    {
+        $host = $request->user()->tournamentHost;
+
+        if ($host === null) {
+            return response()->json([
+                'has_application' => false,
+                'status'          => 'none',
+                'host_id'         => null,
+                'organization_id' => null,
+                'display_name'    => null,
+                'applied_at'      => null,
+                'approved_at'     => null,
+            ]);
+        }
+
+        return response()->json([
+            'has_application' => true,
+            'status'          => $host->status,
+            'host_id'         => $host->id,
+            'organization_id' => $host->organization_id,
+            'display_name'    => $host->display_name,
+            'applied_at'      => $host->created_at,
+            'approved_at'     => $host->approved_at,
+        ]);
+    }
 }
