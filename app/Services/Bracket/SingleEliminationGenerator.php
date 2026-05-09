@@ -23,18 +23,6 @@ use App\Models\TournamentMatch;
  */
 class SingleEliminationGenerator implements BracketGenerator
 {
-    /**
-     * Resolve `best_of` for a given round from `stage.config.best_of_per_round`.
-     * Lookup tries int + string keys (JSON object keys come back as strings,
-     * but tests / config-loaded arrays may use ints). Defaults to 1 when
-     * unspecified.
-     */
-    private function bestOfFor(Stage $stage, int $round): int
-    {
-        $map = $stage->config['best_of_per_round'] ?? [];
-        return (int) ($map[$round] ?? $map[(string) $round] ?? 1);
-    }
-
     public function generate(Stage $stage): array
     {
         $participants = $stage->participants()->orderBy('seed')->get();
@@ -47,6 +35,7 @@ class SingleEliminationGenerator implements BracketGenerator
         $bracketSize = SeedOrderPattern::nextPowerOfTwo($count);
         $rounds      = (int) log($bracketSize, 2);
         $seedOrder   = SeedOrderPattern::forSize($bracketSize);
+        $bestOf      = (int) ($stage->config['best_of'] ?? 1);
 
         $bySeed = $participants->keyBy('seed'); // 1-indexed by seed value
 
@@ -81,7 +70,7 @@ class SingleEliminationGenerator implements BracketGenerator
                 'bracket_round'      => 1,
                 'bracket_position'   => $p,
                 'bracket_type'       => BracketType::Winners,
-                'best_of'            => $this->bestOfFor($stage, 1),
+                'best_of'            => $bestOf,
             ];
 
             if ($isBye) {
@@ -119,7 +108,7 @@ class SingleEliminationGenerator implements BracketGenerator
                     'bracket_round'    => $r,
                     'bracket_position' => $p,
                     'bracket_type'     => BracketType::Winners,
-                    'best_of'          => $this->bestOfFor($stage, $r),
+                    'best_of'          => $bestOf,
                     'status'           => MatchStatus::Pending,
                 ]);
             }
@@ -135,7 +124,7 @@ class SingleEliminationGenerator implements BracketGenerator
                 'bracket_round'    => $rounds,
                 'bracket_position' => 1,            // final is at position 0
                 'bracket_type'     => BracketType::Winners,
-                'best_of'          => $this->bestOfFor($stage, $rounds),
+                'best_of'          => $bestOf,
                 'status'           => MatchStatus::Pending,
             ]);
         }

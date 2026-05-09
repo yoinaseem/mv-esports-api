@@ -27,17 +27,6 @@ use Illuminate\Support\Collection;
  */
 class RoundRobinGenerator implements BracketGenerator
 {
-    /**
-     * Resolve `best_of` for a given round from `stage.config.best_of_per_round`.
-     * Round numbers are within-group (the circle method's schedule index);
-     * the same key applies to the same round across all groups.
-     */
-    private function bestOfFor(Stage $stage, int $round): int
-    {
-        $map = $stage->config['best_of_per_round'] ?? [];
-        return (int) ($map[$round] ?? $map[(string) $round] ?? 1);
-    }
-
     public function generate(Stage $stage): array
     {
         $participants = $stage->participants()->orderBy('seed')->get();
@@ -63,6 +52,7 @@ class RoundRobinGenerator implements BracketGenerator
 
         $totalMatches = 0;
         $bucketed     = $this->snakeDistribute($participants, $groups);
+        $bestOf       = (int) ($stage->config['best_of'] ?? 1);
 
         foreach ($bucketed as $groupNumber => $groupMembers) {
             $groupNum = $groupNumber + 1; // 1-indexed for the DB
@@ -74,7 +64,7 @@ class RoundRobinGenerator implements BracketGenerator
                 $member->update(['group_number' => $groupNum]);
             }
 
-            $totalMatches += $this->generateForGroup($stage, $groupMembers, $groupNum);
+            $totalMatches += $this->generateForGroup($stage, $groupMembers, $groupNum, $bestOf);
         }
 
         return [
@@ -134,7 +124,7 @@ class RoundRobinGenerator implements BracketGenerator
      *
      * @param  array<int, StageParticipant>  $members
      */
-    private function generateForGroup(Stage $stage, array $members, int $groupNumber): int
+    private function generateForGroup(Stage $stage, array $members, int $groupNumber, int $bestOf): int
     {
         $n = count($members);
         if ($n < 2) {
@@ -179,7 +169,7 @@ class RoundRobinGenerator implements BracketGenerator
                     'bracket_position'   => $position,
                     'bracket_type'       => BracketType::Group,
                     'group_number'       => $groupNumber,
-                    'best_of'            => $this->bestOfFor($stage, $r + 1),
+                    'best_of'            => $bestOf,
                     'participant_a_type' => $a->participant_type,
                     'participant_a_id'   => $a->participant_id,
                     'participant_b_type' => $b->participant_type,

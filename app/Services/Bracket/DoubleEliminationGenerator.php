@@ -22,19 +22,6 @@ use App\Models\TournamentMatch;
  */
 class DoubleEliminationGenerator implements BracketGenerator
 {
-    /**
-     * Resolve `best_of` for a given round from `stage.config.best_of_per_round`.
-     * Applied to W and L bracket matches; GrandFinal matches stay at the
-     * default of 1 unless the host PATCHes them post-build (the GF is its
-     * own phase and conflating it with "round 1 of the W bracket" feels
-     * wrong).
-     */
-    private function bestOfFor(Stage $stage, int $round): int
-    {
-        $map = $stage->config['best_of_per_round'] ?? [];
-        return (int) ($map[$round] ?? $map[(string) $round] ?? 1);
-    }
-
     public function generate(Stage $stage): array
     {
         $participants = $stage->participants()->orderBy('seed')->get();
@@ -59,6 +46,7 @@ class DoubleEliminationGenerator implements BracketGenerator
         $seedOrder = SeedOrderPattern::forSize($count);
         $bySeed    = $participants->keyBy('seed');
         $reset     = (bool) ($stage->config['grand_final_reset'] ?? false);
+        $bestOf    = (int) ($stage->config['best_of'] ?? 1);
 
         // ------------------------------------------------------------------
         // Winners bracket — same shape as SE, no byes (power-of-two only).
@@ -76,7 +64,7 @@ class DoubleEliminationGenerator implements BracketGenerator
                 'bracket_round'      => 1,
                 'bracket_position'   => $p,
                 'bracket_type'       => BracketType::Winners,
-                'best_of'            => $this->bestOfFor($stage, 1),
+                'best_of'            => $bestOf,
                 'participant_a_type' => $partA->participant_type,
                 'participant_a_id'   => $partA->participant_id,
                 'participant_b_type' => $partB->participant_type,
@@ -92,7 +80,7 @@ class DoubleEliminationGenerator implements BracketGenerator
                     'bracket_round'    => $r,
                     'bracket_position' => $p,
                     'bracket_type'     => BracketType::Winners,
-                    'best_of'          => $this->bestOfFor($stage, $r),
+                    'best_of'          => $bestOf,
                     'status'           => MatchStatus::Pending,
                 ]);
             }
@@ -111,7 +99,7 @@ class DoubleEliminationGenerator implements BracketGenerator
                     'bracket_round'    => $r,
                     'bracket_position' => $p,
                     'bracket_type'     => BracketType::Losers,
-                    'best_of'          => $this->bestOfFor($stage, $r),
+                    'best_of'          => $bestOf,
                     'status'           => MatchStatus::Pending,
                 ]);
             }
@@ -125,7 +113,7 @@ class DoubleEliminationGenerator implements BracketGenerator
             'bracket_round'    => 1,
             'bracket_position' => 0,
             'bracket_type'     => BracketType::GrandFinal,
-            'best_of'          => 1,
+            'best_of'          => $bestOf,
             'status'           => MatchStatus::Pending,
         ]);
 
@@ -136,7 +124,7 @@ class DoubleEliminationGenerator implements BracketGenerator
                 'bracket_round'    => 2,
                 'bracket_position' => 0,
                 'bracket_type'     => BracketType::GrandFinal,
-                'best_of'          => 1,
+                'best_of'          => $bestOf,
                 'status'           => MatchStatus::Conditional,
             ]);
         }

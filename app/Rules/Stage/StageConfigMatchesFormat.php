@@ -41,7 +41,7 @@ class StageConfigMatchesFormat implements ValidationRule
 
     private function validateSingleElim(array $config, Closure $fail): void
     {
-        $allowed = ['third_place_match', 'best_of_per_round'];
+        $allowed = ['third_place_match', 'best_of'];
         $extra = array_diff(array_keys($config), $allowed);
         if (! empty($extra)) {
             $fail(sprintf('Unexpected keys for single_elim: %s. Allowed: %s.', implode(', ', $extra), implode(', ', $allowed)));
@@ -51,14 +51,14 @@ class StageConfigMatchesFormat implements ValidationRule
         if (isset($config['third_place_match']) && ! is_bool($config['third_place_match'])) {
             $fail('single_elim.third_place_match must be a boolean.');
         }
-        if (isset($config['best_of_per_round'])) {
-            $this->validateBestOfPerRound($config['best_of_per_round'], $fail);
+        if (isset($config['best_of'])) {
+            $this->validateBestOf('single_elim', $config['best_of'], $fail);
         }
     }
 
     private function validateDoubleElim(array $config, Closure $fail): void
     {
-        $allowed = ['grand_final_reset', 'best_of_per_round'];
+        $allowed = ['grand_final_reset', 'best_of'];
         $extra = array_diff(array_keys($config), $allowed);
         if (! empty($extra)) {
             $fail(sprintf('Unexpected keys for double_elim: %s. Allowed: %s.', implode(', ', $extra), implode(', ', $allowed)));
@@ -68,14 +68,14 @@ class StageConfigMatchesFormat implements ValidationRule
         if (isset($config['grand_final_reset']) && ! is_bool($config['grand_final_reset'])) {
             $fail('double_elim.grand_final_reset must be a boolean.');
         }
-        if (isset($config['best_of_per_round'])) {
-            $this->validateBestOfPerRound($config['best_of_per_round'], $fail);
+        if (isset($config['best_of'])) {
+            $this->validateBestOf('double_elim', $config['best_of'], $fail);
         }
     }
 
     private function validateRoundRobin(array $config, Closure $fail): void
     {
-        $allowed = ['groups', 'group_size', 'best_of_per_round'];
+        $allowed = ['groups', 'group_size', 'best_of'];
         $extra = array_diff(array_keys($config), $allowed);
         if (! empty($extra)) {
             $fail(sprintf('Unexpected keys for round_robin: %s. Allowed: %s.', implode(', ', $extra), implode(', ', $allowed)));
@@ -92,36 +92,21 @@ class StageConfigMatchesFormat implements ValidationRule
 
             return;
         }
-        if (isset($config['best_of_per_round'])) {
-            $this->validateBestOfPerRound($config['best_of_per_round'], $fail);
+        if (isset($config['best_of'])) {
+            $this->validateBestOf('round_robin', $config['best_of'], $fail);
         }
     }
 
     /**
-     * Validates a best_of_per_round map: keys are 1-indexed round numbers,
-     * values are odd integers in [1, 99]. Lax on out-of-range round numbers
-     * (those just won't match any generated match — bracket size isn't known
-     * at config time so we can't enforce a hard upper).
+     * Validates the per-stage `best_of` value: must be an odd integer in [1, 99].
+     * Generators apply this single value to every match they create. The host
+     * uses per-match `PATCH /api/matches/{match}` for overrides (e.g., elevating
+     * the grand final to bo7 while the rest of the bracket stays bo3).
      */
-    private function validateBestOfPerRound(mixed $value, Closure $fail): void
+    private function validateBestOf(string $format, mixed $value, Closure $fail): void
     {
-        if (! is_array($value)) {
-            $fail('best_of_per_round must be an object mapping round numbers to odd integers.');
-
-            return;
-        }
-        foreach ($value as $round => $bo) {
-            $roundKey = is_int($round) ? $round : (ctype_digit((string) $round) ? (int) $round : null);
-            if ($roundKey === null || $roundKey < 1) {
-                $fail("best_of_per_round key '{$round}' must be a positive integer.");
-
-                return;
-            }
-            if (! is_int($bo) || $bo < 1 || $bo > 99 || $bo % 2 === 0) {
-                $fail("best_of_per_round[{$round}] must be an odd integer between 1 and 99.");
-
-                return;
-            }
+        if (! is_int($value) || $value < 1 || $value > 99 || $value % 2 === 0) {
+            $fail("{$format}.best_of must be an odd integer between 1 and 99.");
         }
     }
 
