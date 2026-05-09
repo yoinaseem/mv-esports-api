@@ -28,6 +28,8 @@ class RolesAndPermissionsSeeder extends Seeder
             // Auth pass
             'users.view',
             'users.update',
+            'users.create',     // commit 11 — admin-side user creation
+            'users.delete',     // commit 11 — admin-side user deletion
             'roles.manage',
 
             // Catalog pass
@@ -60,9 +62,14 @@ class RolesAndPermissionsSeeder extends Seeder
         // ownership gates that, per DESIGN.md §5). Gets tournaments.create by
         // default — they can host tournaments without going through the host
         // application flow they themselves approve.
+        //
+        // Note: users.update is intentionally NOT granted to system_manager.
+        // Per the commit-11 plan, edit is "account recovery, demo level" —
+        // restricted to superadmin only. system_manager gets users.view and
+        // users.create only.
         $systemManager->syncPermissions([
             'users.view',
-            'users.update',
+            'users.create',
             'games.manage',
             'tournaments.create',
         ]);

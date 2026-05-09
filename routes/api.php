@@ -16,6 +16,7 @@ use App\Http\Controllers\TeamMemberController;
 use App\Http\Controllers\TournamentController;
 use App\Http\Controllers\TournamentHostController;
 use App\Http\Controllers\TournamentRegistrationController;
+use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
 
 // ---------------------------------------------------------------------------
@@ -81,6 +82,17 @@ Route::get('/matches/{match}/games',    [MatchGameController::class, 'index']);
 Route::get('/matches/{match}/events',   [MatchEventController::class, 'index']);
 
 Route::middleware('auth:sanctum')->group(function () {
+    // Users — admin CRUD per the user-management plan. Index / show / create
+    // gated by users.view / users.create (system_manager + superadmin).
+    // Update gated by users.update (superadmin only). Delete is self OR
+    // superadmin (handled in UserPolicy::delete since middleware can't
+    // express the "or self" branch).
+    Route::get('/users', [UserController::class, 'index']);
+    Route::get('/users/{user}', [UserController::class, 'show']);
+    Route::post('/users', [UserController::class, 'store']);
+    Route::match(['put', 'patch'], '/users/{user}', [UserController::class, 'update']);
+    Route::delete('/users/{user}', [UserController::class, 'destroy']);
+
     // Games — system-level catalog. Gated by games.manage permission;
     // RolesAndPermissionsSeeder grants it to superadmin + system_manager.
     Route::post('/games', [GameController::class, 'store'])
