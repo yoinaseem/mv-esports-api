@@ -24,15 +24,27 @@ use Illuminate\Support\Facades\Hash;
  *
  *   php artisan db:seed --class=DevDemoSeeder
  *
- * After running, the database has a single player-based single-elim
- * Rocket League tournament — `Test Tournament 1` — with one stage
- * (single_elim, 3rd-place match enabled), 6 PENDING registrations
- * waiting on the host's approval, and the tournament status set to
- * `RegistrationOpen`. The bracket is NOT built yet — that's the
- * host's next move (approve registrations → close registration →
- * seed and build).
+ * After running, the database has two player-based Rocket League
+ * tournaments, both `RegistrationOpen` with pending registrations:
  *
- * Skip-if-already-seeded by checking the demo tournament's slug. To
+ *   1. `Test Tournament 1` — single-stage single_elim with the
+ *      3rd-place match enabled, default best_of=3, 6 PENDING
+ *      registrations against a max_participants of 4. Tests the
+ *      approval-flow-with-overflow path (the host has more
+ *      applicants than slots).
+ *
+ *   2. `Test Tournament 2` — two-stage flow (round-robin → double
+ *      elimination), default best_of=3, 10 PENDING registrations
+ *      against a max_participants of 8. Stage 1 is two groups of
+ *      four; stage 2 is a 4-player DE populated by `top_n_per_group`
+ *      (top 2 from each group qualifies). Tests the multi-stage
+ *      seed-and-build + qualification cascade, with 2 extra pending
+ *      regs so host approval/rejection still has work to do.
+ *
+ * Neither bracket is built yet — host approves → closes registration
+ * → seed-and-builds.
+ *
+ * Skip-if-already-seeded by checking Test Tournament 1's slug. To
  * re-seed cleanly: `php artisan migrate:fresh && php artisan db:seed
  * --class=DevDemoSeeder` (two commands — `--class` is a db:seed flag,
  * not a migrate:fresh one).
@@ -42,15 +54,23 @@ use Illuminate\Support\Facades\Hash;
  */
 class DevDemoSeeder extends Seeder
 {
-    private const TOURNAMENT_NAME = 'Test Tournament 1';
-    private const TOURNAMENT_SLUG = 'test-tournament-1';
-    private const GAME_SLUG       = 'rocket-league';
-    private const ORG_SLUG        = 'mv-esports';
-    private const PLAYER_COUNT    = 6; // pending registrations from individual players
+    private const T1_NAME = 'Test Tournament 1';
+    private const T1_SLUG = 'test-tournament-1';
+    private const T1_MAX  = 4;
+    private const T1_REGS = 6; // pending — overflow against the cap
+
+    private const T2_NAME = 'Test Tournament 2';
+    private const T2_SLUG = 'test-tournament-2';
+    private const T2_MAX  = 8;
+    private const T2_REGS = 10; // pending — overflow against the cap, host needs to reject 2
+
+    private const GAME_SLUG    = 'rocket-league';
+    private const ORG_SLUG     = 'mv-esports';
+    private const PLAYER_COUNT = 10; // covers both tournaments (T1 uses 1..6, T2 uses 1..10)
 
     public function run(): void
     {
-        if (Tournament::where('slug', self::TOURNAMENT_SLUG)->exists()) {
+        if (Tournament::where('slug', self::T1_SLUG)->exists()) {
             $this->command?->info('Demo state already present; skipping. Run `migrate:fresh && db:seed --class=DevDemoSeeder` to re-seed.');
             return;
         }
@@ -61,20 +81,27 @@ class DevDemoSeeder extends Seeder
         DB::transaction(function () {
             $systemManager = User::where('email', 'system-manager@mvesports.test')->firstOrFail();
 
-            $game        = $this->createGame();
+            $game         = $this->createGame();
             $organisation = $this->createOrganisation($systemManager);
-            $hosts       = $this->createHosts($systemManager, $organisation);
-            $playerUsers = $this->createPlayerUsers($game);
-            $tournament  = $this->createTournament($hosts[0], $organisation, $game, $systemManager);
-            $this->configureStages($tournament);
-            $this->registerPlayers($tournament, $playerUsers, $game);
+            $hosts        = $this->createHosts($systemManager, $organisation);
+            $playerUsers  = $this->createPlayerUsers($game);
+
+            // Tournament 1 — single-stage SE, hosted by alice.
+            $t1 = $this->createTournamentOne($hosts[0], $organisation, $game, $systemManager);
+            $this->configureStagesOne($t1);
+            $this->registerPlayers($t1, array_slice($playerUsers, 0, self::T1_REGS), $game);
+
+            // Tournament 2 — two-stage RR → DE, hosted by bravo.
+            $t2 = $this->createTournamentTwo($hosts[1], $organisation, $game, $systemManager);
+            $this->configureStagesTwo($t2);
+            $this->registerPlayers($t2, array_slice($playerUsers, 0, self::T2_REGS), $game);
         });
 
         $this->command?->info(sprintf(
-            'Demo seed complete: 1 tournament (%s), %d players, %d pending registrations, registration open.',
-            self::TOURNAMENT_NAME,
+            'Demo seed complete: 2 tournaments, %d players. T1: %d pending / max %d. T2: %d pending / max %d.',
             self::PLAYER_COUNT,
-            self::PLAYER_COUNT,
+            self::T1_REGS, self::T1_MAX,
+            self::T2_REGS, self::T2_MAX,
         ));
     }
 
@@ -175,22 +202,17 @@ class DevDemoSeeder extends Seeder
         return $users;
     }
 
-    private function createTournament(
+    private function createTournamentOne(
         User $host,
         Organization $organisation,
         Game $game,
         User $systemManager,
     ): Tournament {
-        $hostRow = $host->tournamentHost;
-
-        $start = Carbon::now()->addDays(14);
-        $end   = $start->copy()->addDays(2);
-
         return Tournament::create([
-            'name'                   => self::TOURNAMENT_NAME,
-            'slug'                   => self::TOURNAMENT_SLUG,
+            'name'                   => self::T1_NAME,
+            'slug'                   => self::T1_SLUG,
             'game_id'                => $game->id,
-            'host_id'                => $hostRow->id,
+            'host_id'                => $host->tournamentHost->id,
             'organization_id'        => $organisation->id,
             'created_by_user_id'     => $host->id,
             'approved_by_user_id'    => $systemManager->id,
@@ -198,19 +220,18 @@ class DevDemoSeeder extends Seeder
             'participant_type'       => 'player',
             'registration_type'      => 'open',
             'status'                 => TournamentStatus::RegistrationOpen,
-            'description'            => 'Demo tournament — Rocket League player-based single-elim.',
-            'start_date'             => $start->format('Y-m-d'),
-            'end_date'               => $end->format('Y-m-d'),
-            // Registration is currently open: opened a day ago, closes a week from now.
+            'description'            => 'Demo tournament — Rocket League player-based single-elim with 3rd-place match.',
+            'start_date'             => Carbon::now()->addDays(14)->format('Y-m-d'),
+            'end_date'               => Carbon::now()->addDays(16)->format('Y-m-d'),
             'registration_opens_at'  => Carbon::now()->subDay(),
             'registration_closes_at' => Carbon::now()->addDays(7),
             'stream_url'             => 'https://example.com/stream',
             'banner_url'             => null,
-            'max_participants'       => 4,
+            'max_participants'       => self::T1_MAX,
         ]);
     }
 
-    private function configureStages(Tournament $tournament): void
+    private function configureStagesOne(Tournament $tournament): void
     {
         $stage = Stage::create([
             'tournament_id' => $tournament->id,
@@ -221,8 +242,12 @@ class DevDemoSeeder extends Seeder
             'end_date'      => null,
             'status'        => StageStatus::Pending,
             // 3rd-place match enabled (semifinal losers play off for position 3).
-            // grand_final_reset is a double_elim-only config and isn't relevant here.
-            'config'        => ['third_place_match' => true],
+            // best_of=3 applies to every match the generator creates; the host
+            // PATCHes per-match if they want the final at a higher bo.
+            'config'        => [
+                'third_place_match' => true,
+                'best_of'           => 3,
+            ],
         ]);
 
         StageQualification::create([
@@ -233,11 +258,97 @@ class DevDemoSeeder extends Seeder
         ]);
     }
 
+    private function createTournamentTwo(
+        User $host,
+        Organization $organisation,
+        Game $game,
+        User $systemManager,
+    ): Tournament {
+        return Tournament::create([
+            'name'                   => self::T2_NAME,
+            'slug'                   => self::T2_SLUG,
+            'game_id'                => $game->id,
+            'host_id'                => $host->tournamentHost->id,
+            'organization_id'        => $organisation->id,
+            'created_by_user_id'     => $host->id,
+            'approved_by_user_id'    => $systemManager->id,
+            'approved_at'            => now(),
+            'participant_type'       => 'player',
+            'registration_type'      => 'open',
+            'status'                 => TournamentStatus::RegistrationOpen,
+            'description'            => 'Demo tournament — two-stage Rocket League. Round robin (2 groups of 4) feeds top 2 from each group into a 4-player double elim.',
+            'start_date'             => Carbon::now()->addDays(21)->format('Y-m-d'),
+            'end_date'               => Carbon::now()->addDays(24)->format('Y-m-d'),
+            'registration_opens_at'  => Carbon::now()->subDay(),
+            'registration_closes_at' => Carbon::now()->addDays(10),
+            'stream_url'             => 'https://example.com/stream',
+            'banner_url'             => null,
+            'max_participants'       => self::T2_MAX,
+        ]);
+    }
+
+    private function configureStagesTwo(Tournament $tournament): void
+    {
+        // Stage 1 — round robin: 2 groups of 4, bo3.
+        $groupStage = Stage::create([
+            'tournament_id' => $tournament->id,
+            'name'          => 'Group Stage',
+            'format'        => 'round_robin',
+            'sort_order'    => 0,
+            'start_date'    => null,
+            'end_date'      => null,
+            'status'        => StageStatus::Pending,
+            'config'        => [
+                'groups'     => 2,
+                'group_size' => 4,
+                'best_of'    => 3,
+            ],
+        ]);
+
+        // Stage 2 — double elim: 4 players (top 2 from each group), bo3.
+        $playoffStage = Stage::create([
+            'tournament_id' => $tournament->id,
+            'name'          => 'Playoffs',
+            'format'        => 'double_elim',
+            'sort_order'    => 1,
+            'start_date'    => null,
+            'end_date'      => null,
+            'status'        => StageStatus::Pending,
+            'config'        => [
+                'best_of' => 3,
+                // No grand_final_reset — keeps the playoff short for demo purposes.
+                // Host can PATCH the GF to a higher bo if they want a longer final.
+            ],
+        ]);
+
+        // Stage 1 is the entry point — populate from approved registrations.
+        StageQualification::create([
+            'source_stage_id' => null,
+            'target_stage_id' => $groupStage->id,
+            'rule_type'       => 'all',
+            'rule_config'     => [],
+        ]);
+
+        // Stage 2 takes the top 2 from each group of stage 1 (cross-group placement
+        // produces an A1/B2 + B1/A2 bracket, which avoids same-group rematches in
+        // the first round of playoffs).
+        StageQualification::create([
+            'source_stage_id' => $groupStage->id,
+            'target_stage_id' => $playoffStage->id,
+            'rule_type'       => 'top_n_per_group',
+            'rule_config'     => [
+                'per_group'          => 2,
+                'placement_strategy' => 'cross_group',
+            ],
+        ]);
+    }
+
     /**
      * @param  array<int, User>  $playerUsers
      */
     private function registerPlayers(Tournament $tournament, array $playerUsers, Game $game): void
     {
+        $count = count($playerUsers);
         foreach ($playerUsers as $i => $playerUser) {
             $player = $playerUser->players()->where('game_id', $game->id)->firstOrFail();
 
@@ -251,7 +362,7 @@ class DevDemoSeeder extends Seeder
                 'registered_by_user_id' => $playerUser->id,
                 'status'                => RegistrationStatus::Pending,
                 'seed'                  => null,
-                'registered_at'         => now()->subMinutes(self::PLAYER_COUNT - $i),
+                'registered_at'         => now()->subMinutes($count - $i),
             ]);
         }
     }
