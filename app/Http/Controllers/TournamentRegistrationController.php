@@ -71,6 +71,22 @@ class TournamentRegistrationController extends Controller
                     'This tournament is not currently accepting registrations.'
                 );
 
+                // Window enforcement: the host's planned registration_opens_at
+                // / registration_closes_at bounds. Status RegistrationOpen
+                // says the host has manually opened registration; the window
+                // says when registration is allowed to happen. If the host
+                // clicked "open registration" before registration_opens_at,
+                // they need to PATCH the date or wait. If we're past
+                // registration_closes_at, they need to extend or accept that
+                // registration is over.
+                $now = now();
+                abort_if(
+                    $now->lt($tournament->registration_opens_at)
+                        || $now->gt($tournament->registration_closes_at),
+                    422,
+                    'Registration is not currently within its open window.'
+                );
+
                 if ($tournament->max_participants !== null) {
                     $approvedCount = $tournament->registrations()
                         ->where('status', RegistrationStatus::Approved->value)

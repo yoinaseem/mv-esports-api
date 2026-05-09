@@ -24,7 +24,10 @@ class TournamentCompletion
         }
 
         if ($tournament->status->canTransitionTo(TournamentStatus::Completed)) {
-            $tournament->update(['status' => TournamentStatus::Completed]);
+            $tournament->update([
+                'status'       => TournamentStatus::Completed,
+                'completed_at' => now(),
+            ]);
         }
     }
 }

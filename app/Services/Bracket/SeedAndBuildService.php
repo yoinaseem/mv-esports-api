@@ -152,14 +152,19 @@ class SeedAndBuildService
                 throw new \DomainException('No stages were built — the entry stage has no participants. Did the resolver find any approved registrations?');
             }
 
-            // Step 4: tournament transition.
+            // Step 4: tournament transition. `started_at` stamps the actual
+            // moment the tournament went live, distinct from the host-set
+            // `start_date` (intent).
             if (! $tournament->status->canTransitionTo(TournamentStatus::InProgress)) {
                 throw new \DomainException(sprintf(
                     'Tournament cannot transition from %s to in_progress.',
                     $tournament->status->value,
                 ));
             }
-            $tournament->update(['status' => TournamentStatus::InProgress]);
+            $tournament->update([
+                'status'     => TournamentStatus::InProgress,
+                'started_at' => now(),
+            ]);
 
             return [
                 'tournament_id' => $tournament->id,

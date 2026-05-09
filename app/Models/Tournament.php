@@ -31,6 +31,8 @@ class Tournament extends Model
         'end_date',
         'registration_opens_at',
         'registration_closes_at',
+        'started_at',
+        'completed_at',
         'stream_url',
         'banner_url',
         'max_participants',
@@ -44,6 +46,8 @@ class Tournament extends Model
             'end_date'               => 'date',
             'registration_opens_at'  => 'datetime',
             'registration_closes_at' => 'datetime',
+            'started_at'             => 'datetime',
+            'completed_at'           => 'datetime',
             'approved_at'            => 'datetime',
         ];
     }
