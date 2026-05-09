@@ -146,6 +146,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/tournaments/{tournament}/open-registration',   [TournamentController::class, 'openRegistration']);
     Route::post('/tournaments/{tournament}/close-registration',  [TournamentController::class, 'closeRegistration']);
     Route::post('/tournaments/{tournament}/cancel',              [TournamentController::class, 'cancel']);
+    Route::post('/tournaments/{tournament}/seed-and-build',      [TournamentController::class, 'seedAndBuild']);
 
     // Tournament registrations — nested. Store/update/destroy all gate via
     // controller logic (host/manager for admin paths; participant owner

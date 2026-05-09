@@ -8,6 +8,7 @@ use App\Http\Requests\Tournament\CreateTournamentRequest;
 use App\Http\Requests\Tournament\UpdateTournamentRequest;
 use App\Http\Resources\TournamentResource;
 use App\Models\Tournament;
+use App\Services\Bracket\SeedAndBuildService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -251,6 +252,28 @@ class TournamentController extends Controller
         $this->transition($tournament, TournamentStatus::Cancelled);
 
         return new TournamentResource($tournament);
+    }
+
+    /**
+     * Seed the entry stage and build the bracket
+     *
+     * Host or manager. Run from `RegistrationClosed`: copies approved registrations into the entry stage's `stage_participants` (where the qualification rule is `all` from a null source), invokes the format-specific bracket generator (single_elim / double_elim / round_robin), transitions each built stage from `Pending → InProgress` and the tournament from `RegistrationClosed → InProgress`. Atomic — any precondition failure or generator error rolls back. Re-running on a tournament that already has matches is rejected (422); regeneration isn't supported.
+     */
+    public function seedAndBuild(
+        Request $request,
+        Tournament $tournament,
+        SeedAndBuildService $svc,
+    ): TournamentResource {
+        $this->authorize('seedAndBuild', $tournament);
+
+        try {
+            $summary = $svc->execute($tournament);
+        } catch (\DomainException $e) {
+            abort(422, $e->getMessage());
+        }
+
+        return (new TournamentResource($tournament->fresh()))
+            ->additional(['bracket_summary' => $summary]);
     }
 
     // -----------------------------------------------------------------------

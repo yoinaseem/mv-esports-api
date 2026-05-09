@@ -85,6 +85,16 @@ class TournamentPolicy
         return $this->isHostOrManager($user, $tournament);
     }
 
+    /**
+     * Run the seed-and-build flow that turns registrations into a populated
+     * bracket and transitions the tournament from RegistrationClosed to
+     * InProgress. Same admin trio as other lifecycle verbs.
+     */
+    public function seedAndBuild(User $user, Tournament $tournament): bool
+    {
+        return $this->isHostOrManager($user, $tournament);
+    }
+
     private function isHostOrManager(User $user, Tournament $tournament): bool
     {
         if ($user->hasAnyRole(['system_manager', 'superadmin'])) {
