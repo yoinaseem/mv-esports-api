@@ -13,10 +13,16 @@ class DatabaseSeeder extends Seeder
     {
         $this->call(RolesAndPermissionsSeeder::class);
 
-        // Fixture users only in development / test environments. Production
-        // seeds the roles/permissions catalogue only.
+        // Fixture users + demo state only in development / test environments.
+        // Production seeds the roles/permissions catalogue only.
+        //
+        // DevDemoSeeder is self-contained (it idempotently re-calls
+        // RolesAndPermissionsSeeder + DevUsersSeeder internally) so calling
+        // it here produces the full dev state via plain `migrate:fresh
+        // --seed` — no `--class=...` flag needed. The actual production-grade
+        // demo seeder will replace this entry when it ships.
         if (app()->environment(['local', 'testing'])) {
-            $this->call(DevUsersSeeder::class);
+            $this->call(DevDemoSeeder::class);
         }
     }
 }

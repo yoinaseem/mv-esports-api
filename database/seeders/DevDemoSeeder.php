@@ -10,13 +10,10 @@ use App\Models\Organization;
 use App\Models\Player;
 use App\Models\Stage;
 use App\Models\StageQualification;
-use App\Models\Team;
-use App\Models\TeamMember;
 use App\Models\Tournament;
 use App\Models\TournamentHost;
 use App\Models\TournamentRegistration;
 use App\Models\User;
-use App\Services\Bracket\SeedAndBuildService;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -27,10 +24,13 @@ use Illuminate\Support\Facades\Hash;
  *
  *   php artisan db:seed --class=DevDemoSeeder
  *
- * After running, the database has a single 8-team team-based single-elim
- * Rocket League tournament, fully built and ready to play. A developer
- * can sign in as host-alice@mvesports.test (password = email), POST games
- * to round-1 matches, and watch the cascade fire.
+ * After running, the database has a single player-based single-elim
+ * Rocket League tournament — `Test Tournament 1` — with one stage
+ * (single_elim, 3rd-place match enabled), 6 PENDING registrations
+ * waiting on the host's approval, and the tournament status set to
+ * `RegistrationOpen`. The bracket is NOT built yet — that's the
+ * host's next move (approve registrations → close registration →
+ * seed and build).
  *
  * Skip-if-already-seeded by checking the demo tournament's slug. To
  * re-seed cleanly: `php artisan migrate:fresh && php artisan db:seed
@@ -42,12 +42,11 @@ use Illuminate\Support\Facades\Hash;
  */
 class DevDemoSeeder extends Seeder
 {
-    private const TOURNAMENT_SLUG = 'demo-cup-2026';
+    private const TOURNAMENT_NAME = 'Test Tournament 1';
+    private const TOURNAMENT_SLUG = 'test-tournament-1';
     private const GAME_SLUG       = 'rocket-league';
     private const ORG_SLUG        = 'mv-esports';
-    private const TEAM_NAMES      = ['Aces', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot', 'Golf', 'Hotel'];
-    private const TEAM_SIZE       = 3; // Rocket League is 3v3 in standard competitive
-    private const TEAM_COUNT      = 8;
+    private const PLAYER_COUNT    = 6; // pending registrations from individual players
 
     public function run(): void
     {
@@ -66,17 +65,16 @@ class DevDemoSeeder extends Seeder
             $organisation = $this->createOrganisation($systemManager);
             $hosts       = $this->createHosts($systemManager, $organisation);
             $playerUsers = $this->createPlayerUsers($game);
-            $teams       = $this->createTeams($organisation, $game, $playerUsers);
             $tournament  = $this->createTournament($hosts[0], $organisation, $game, $systemManager);
-            $this->registerTeams($tournament, $teams);
             $this->configureStages($tournament);
-            $this->seedAndBuild($tournament);
+            $this->registerPlayers($tournament, $playerUsers, $game);
         });
 
         $this->command?->info(sprintf(
-            'Demo seed complete: 1 tournament, %d teams, %d players, bracket built.',
-            self::TEAM_COUNT,
-            self::TEAM_COUNT * self::TEAM_SIZE,
+            'Demo seed complete: 1 tournament (%s), %d players, %d pending registrations, registration open.',
+            self::TOURNAMENT_NAME,
+            self::PLAYER_COUNT,
+            self::PLAYER_COUNT,
         ));
     }
 
@@ -146,13 +144,12 @@ class DevDemoSeeder extends Seeder
     }
 
     /**
-     * @return array<int, User>  TEAM_COUNT × TEAM_SIZE player users (with Player rows attached for $game)
+     * @return array<int, User>  PLAYER_COUNT player users (with Player rows attached for $game)
      */
     private function createPlayerUsers(Game $game): array
     {
-        $count = self::TEAM_COUNT * self::TEAM_SIZE;
         $users = [];
-        for ($i = 1; $i <= $count; $i++) {
+        for ($i = 1; $i <= self::PLAYER_COUNT; $i++) {
             $email = sprintf('player-%02d@mvesports.test', $i);
             $user  = User::firstOrCreate(
                 ['email' => $email],
@@ -178,46 +175,6 @@ class DevDemoSeeder extends Seeder
         return $users;
     }
 
-    /**
-     * @param  array<int, User>  $playerUsers
-     * @return array<int, Team>  TEAM_COUNT teams of TEAM_SIZE
-     */
-    private function createTeams(Organization $organisation, Game $game, array $playerUsers): array
-    {
-        $teams = [];
-        foreach (self::TEAM_NAMES as $index => $teamName) {
-            // TEAM_SIZE members per team, drawn from $playerUsers in order.
-            $members = array_slice($playerUsers, $index * self::TEAM_SIZE, self::TEAM_SIZE);
-            $captain = $members[0]->players()->where('game_id', $game->id)->firstOrFail();
-
-            $team = Team::firstOrCreate(
-                ['name' => "Team {$teamName}"],
-                [
-                    'organization_id'      => $organisation->id,
-                    'game_id'              => $game->id,
-                    'tag'                  => strtoupper(substr($teamName, 0, 3)),
-                    'logo_url'             => null,
-                    'created_by_player_id' => $captain->id,
-                ],
-            );
-
-            foreach ($members as $i => $memberUser) {
-                $playerForGame = $memberUser->players()->where('game_id', $game->id)->firstOrFail();
-                TeamMember::firstOrCreate(
-                    ['team_id' => $team->id, 'player_id' => $playerForGame->id],
-                    [
-                        'role'      => $i === 0 ? 'captain' : 'member',
-                        'joined_at' => now(),
-                        'left_at'   => null,
-                    ],
-                );
-            }
-
-            $teams[] = $team;
-        }
-        return $teams;
-    }
-
     private function createTournament(
         User $host,
         Organization $organisation,
@@ -230,7 +187,7 @@ class DevDemoSeeder extends Seeder
         $end   = $start->copy()->addDays(2);
 
         return Tournament::create([
-            'name'                   => 'Demo Cup 2026',
+            'name'                   => self::TOURNAMENT_NAME,
             'slug'                   => self::TOURNAMENT_SLUG,
             'game_id'                => $game->id,
             'host_id'                => $hostRow->id,
@@ -238,39 +195,19 @@ class DevDemoSeeder extends Seeder
             'created_by_user_id'     => $host->id,
             'approved_by_user_id'    => $systemManager->id,
             'approved_at'            => now(),
-            'participant_type'       => 'team',
+            'participant_type'       => 'player',
             'registration_type'      => 'open',
-            'status'                 => TournamentStatus::RegistrationClosed,
-            'description'            => 'Demo tournament — 8-team Rocket League single-elim.',
+            'status'                 => TournamentStatus::RegistrationOpen,
+            'description'            => 'Demo tournament — Rocket League player-based single-elim.',
             'start_date'             => $start->format('Y-m-d'),
             'end_date'               => $end->format('Y-m-d'),
-            'registration_opens_at'  => Carbon::now()->subDays(7),
-            'registration_closes_at' => Carbon::now()->subDay(),
+            // Registration is currently open: opened a day ago, closes a week from now.
+            'registration_opens_at'  => Carbon::now()->subDay(),
+            'registration_closes_at' => Carbon::now()->addDays(7),
             'stream_url'             => 'https://example.com/stream',
             'banner_url'             => null,
-            'max_participants'       => 8,
+            'max_participants'       => 4,
         ]);
-    }
-
-    /**
-     * @param  array<int, Team>  $teams
-     */
-    private function registerTeams(Tournament $tournament, array $teams): void
-    {
-        foreach ($teams as $i => $team) {
-            $captainMember = $team->members()->where('role', 'captain')->firstOrFail();
-            $captainUser   = $captainMember->player->user;
-
-            TournamentRegistration::create([
-                'tournament_id'         => $tournament->id,
-                'participant_type'      => 'team',
-                'participant_id'        => $team->id,
-                'registered_by_user_id' => $captainUser->id,
-                'status'                => RegistrationStatus::Approved,
-                'seed'                  => $i + 1,
-                'registered_at'         => now(),
-            ]);
-        }
     }
 
     private function configureStages(Tournament $tournament): void
@@ -283,7 +220,9 @@ class DevDemoSeeder extends Seeder
             'start_date'    => null,
             'end_date'      => null,
             'status'        => StageStatus::Pending,
-            'config'        => null,
+            // 3rd-place match enabled (semifinal losers play off for position 3).
+            // grand_final_reset is a double_elim-only config and isn't relevant here.
+            'config'        => ['third_place_match' => true],
         ]);
 
         StageQualification::create([
@@ -294,8 +233,26 @@ class DevDemoSeeder extends Seeder
         ]);
     }
 
-    private function seedAndBuild(Tournament $tournament): void
+    /**
+     * @param  array<int, User>  $playerUsers
+     */
+    private function registerPlayers(Tournament $tournament, array $playerUsers, Game $game): void
     {
-        app(SeedAndBuildService::class)->execute($tournament->fresh());
+        foreach ($playerUsers as $i => $playerUser) {
+            $player = $playerUser->players()->where('game_id', $game->id)->firstOrFail();
+
+            // Pending registrations — host hasn't approved them yet.
+            // No seed assigned; the host will assign during approval (or the
+            // EntryPointResolver will auto-fill when seed-and-build runs).
+            TournamentRegistration::create([
+                'tournament_id'         => $tournament->id,
+                'participant_type'      => 'player',
+                'participant_id'        => $player->id,
+                'registered_by_user_id' => $playerUser->id,
+                'status'                => RegistrationStatus::Pending,
+                'seed'                  => null,
+                'registered_at'         => now()->subMinutes(self::PLAYER_COUNT - $i),
+            ]);
+        }
     }
 }

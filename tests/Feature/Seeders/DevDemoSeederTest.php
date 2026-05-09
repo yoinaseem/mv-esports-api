@@ -1,6 +1,6 @@
 <?php
 
-use App\Enums\MatchStatus;
+use App\Enums\RegistrationStatus;
 use App\Enums\StageStatus;
 use App\Enums\TournamentStatus;
 use App\Models\Game;
@@ -8,10 +8,8 @@ use App\Models\Organization;
 use App\Models\Player;
 use App\Models\Stage;
 use App\Models\Team;
-use App\Models\TeamMember;
 use App\Models\Tournament;
 use App\Models\TournamentHost;
-use App\Models\TournamentMatch;
 use App\Models\TournamentRegistration;
 use App\Models\User;
 use Database\Seeders\DevDemoSeeder;
@@ -19,53 +17,60 @@ use Database\Seeders\DevDemoSeeder;
 test('DevDemoSeeder produces a complete demo state in one run', function () {
     $this->seed(DevDemoSeeder::class);
 
+    // Game + organisation
     expect(Game::where('slug', 'rocket-league')->exists())->toBeTrue();
     expect(Game::where('name', 'Rocket League')->exists())->toBeTrue();
     expect(Organization::where('slug', 'mv-esports')->exists())->toBeTrue();
 
+    // Hosts (approved)
     expect(User::where('email', 'host-alice@mvesports.test')->exists())->toBeTrue();
     expect(User::where('email', 'host-bravo@mvesports.test')->exists())->toBeTrue();
     expect(TournamentHost::where('status', 'approved')->count())->toBe(2);
 
-    // 8 teams × 3 players (Rocket League is 3v3) = 24 player users.
-    expect(User::where('email', 'like', 'player-%@mvesports.test')->count())->toBe(24);
-    expect(Player::count())->toBe(24);
+    // 6 player users + 6 player profiles (player-based tournament).
+    expect(User::where('email', 'like', 'player-%@mvesports.test')->count())->toBe(6);
+    expect(Player::count())->toBe(6);
 
-    expect(Team::count())->toBe(8);
-    expect(TeamMember::count())->toBe(24);
-    expect(TeamMember::where('role', 'captain')->count())->toBe(8);
+    // No teams created — this is a player-based tournament.
+    expect(Team::count())->toBe(0);
 
-    $tournament = Tournament::where('slug', 'demo-cup-2026')->first();
+    // Tournament: Test Tournament 1, status RegistrationOpen, player-based.
+    $tournament = Tournament::where('slug', 'test-tournament-1')->first();
     expect($tournament)->not->toBeNull();
-    expect($tournament->status)->toBe(TournamentStatus::InProgress);
-    expect($tournament->participant_type)->toBe('team');
+    expect($tournament->name)->toBe('Test Tournament 1');
+    expect($tournament->status)->toBe(TournamentStatus::RegistrationOpen);
+    expect($tournament->participant_type)->toBe('player');
 
-    expect(TournamentRegistration::where('tournament_id', $tournament->id)->count())->toBe(8);
-    $seeds = TournamentRegistration::where('tournament_id', $tournament->id)
-        ->orderBy('seed')
-        ->pluck('seed')->toArray();
-    expect($seeds)->toBe([1, 2, 3, 4, 5, 6, 7, 8]);
+    // 6 PENDING registrations, no seeds assigned.
+    $registrations = TournamentRegistration::where('tournament_id', $tournament->id)->get();
+    expect($registrations)->toHaveCount(6);
+    foreach ($registrations as $reg) {
+        expect($reg->status)->toBe(RegistrationStatus::Pending);
+        expect($reg->seed)->toBeNull();
+        expect($reg->participant_type)->toBe('player');
+    }
 
+    // 1 stage, single_elim, third_place_match config enabled, status Pending
+    // (bracket NOT built yet — host hasn't run seed-and-build).
     $stage = Stage::where('tournament_id', $tournament->id)->first();
-    expect($stage->status)->toBe(StageStatus::InProgress);
-    expect($stage->participants()->count())->toBe(8);
+    expect($stage)->not->toBeNull();
+    expect($stage->format)->toBe('single_elim');
+    expect($stage->status)->toBe(StageStatus::Pending);
+    expect($stage->config)->toBe(['third_place_match' => true]);
 
-    // 8-team SE bracket has 7 matches: 4 R1 + 2 R2 + 1 final.
-    expect($stage->matches()->count())->toBe(7);
-    expect($stage->matches()->where('bracket_round', 1)->count())->toBe(4);
-    expect($stage->matches()->where('bracket_round', 1)->where('status', MatchStatus::Scheduled)->count())->toBe(4);
-    expect($stage->matches()->where('bracket_round', 2)->where('status', MatchStatus::Pending)->count())->toBe(2);
-    expect($stage->matches()->where('bracket_round', 3)->where('status', MatchStatus::Pending)->count())->toBe(1);
+    // No participants slotted yet (resolver hasn't run), no matches.
+    expect($stage->participants()->count())->toBe(0);
+    expect($stage->matches()->count())->toBe(0);
 });
 
 test('seeder is skip-if-already-seeded — second run is a no-op', function () {
     $this->seed(DevDemoSeeder::class);
 
-    $tournamentCountBefore = Tournament::count();
-    $teamCountBefore       = Team::count();
+    $tournamentCountBefore    = Tournament::count();
+    $registrationCountBefore  = TournamentRegistration::count();
 
     $this->seed(DevDemoSeeder::class); // re-run
 
     expect(Tournament::count())->toBe($tournamentCountBefore);
-    expect(Team::count())->toBe($teamCountBefore);
+    expect(TournamentRegistration::count())->toBe($registrationCountBefore);
 });

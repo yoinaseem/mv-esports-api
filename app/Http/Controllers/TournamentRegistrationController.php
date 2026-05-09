@@ -144,7 +144,31 @@ class TournamentRegistrationController extends Controller
             $data['status'] = $next;
         }
 
-        $registration->update($data);
+        // Enforce max_participants cap on transitions INTO approved.
+        // Without this, the host can over-approve past the cap (the cap
+        // check on `store` only blocks NEW registrations once approved
+        // count >= max — it doesn't gate the pending → approved
+        // transition). Wrap in a transaction + advisory lock so two
+        // simultaneous approval clicks can't both squeak past the cap.
+        $approvingNow = isset($data['status'])
+            && $data['status'] === RegistrationStatus::Approved
+            && $registration->status !== RegistrationStatus::Approved;
+
+        if ($approvingNow && $tournament->max_participants !== null) {
+            DB::transaction(function () use ($tournament, $registration, $data) {
+                DB::statement('SELECT pg_advisory_xact_lock(?)', [$tournament->id]);
+
+                $approvedCount = $tournament->registrations()
+                    ->where('status', RegistrationStatus::Approved->value)
+                    ->count();
+                abort_if($approvedCount >= $tournament->max_participants, 422,
+                    'This tournament has reached its participant cap.');
+
+                $registration->update($data);
+            });
+        } else {
+            $registration->update($data);
+        }
 
         return new TournamentRegistrationResource($registration);
     }

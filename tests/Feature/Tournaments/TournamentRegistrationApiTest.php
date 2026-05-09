@@ -255,6 +255,46 @@ test('store rejects when the tournament is full (max_participants approved)', fu
         ->assertStatus(422);
 });
 
+test('approval is rejected when it would push approved count past max_participants', function () {
+    $host = User::factory()->systemManager()->create();
+    $t    = Tournament::factory()->registrationOpen()->create([
+        'created_by_user_id' => $host->id,
+        'max_participants'   => 2,
+    ]);
+    // Two already approved → cap full.
+    TournamentRegistration::factory()->approved()->count(2)->create(['tournament_id' => $t->id]);
+    // A third pending registration the host tries to approve.
+    $pending = TournamentRegistration::factory()->create(['tournament_id' => $t->id]);
+
+    $this->actingAs($host)
+        ->patchJson("/api/tournaments/{$t->id}/registrations/{$pending->id}", ['status' => 'approved'])
+        ->assertStatus(422);
+
+    expect($pending->fresh()->status->value)->toBe('pending');
+});
+
+test('approval is allowed when an existing approved registration withdraws first (cap headroom recovered)', function () {
+    $host = User::factory()->systemManager()->create();
+    $t    = Tournament::factory()->registrationOpen()->create([
+        'created_by_user_id' => $host->id,
+        'max_participants'   => 2,
+    ]);
+    $first  = TournamentRegistration::factory()->approved()->create(['tournament_id' => $t->id]);
+    $second = TournamentRegistration::factory()->approved()->create(['tournament_id' => $t->id]);
+    $pending = TournamentRegistration::factory()->create(['tournament_id' => $t->id]);
+
+    // First approval would fail (cap full).
+    $this->actingAs($host)
+        ->patchJson("/api/tournaments/{$t->id}/registrations/{$pending->id}", ['status' => 'approved'])
+        ->assertStatus(422);
+
+    // After someone withdraws, a new approval slots in.
+    $second->update(['status' => 'withdrawn']);
+    $this->actingAs($host)
+        ->patchJson("/api/tournaments/{$t->id}/registrations/{$pending->id}", ['status' => 'approved'])
+        ->assertOk();
+});
+
 // ---------------------------------------------------------------------------
 // PATCH — admin status, owner withdraw, seed
 // ---------------------------------------------------------------------------
