@@ -23,7 +23,7 @@ class TeamController extends Controller
             ->when($request->filled('organization_id'), fn ($q) => $q->where('organization_id', $request->integer('organization_id')))
             ->when($request->filled('created_by_player_id'), fn ($q) => $q->where('created_by_player_id', $request->integer('created_by_player_id')))
             ->orderBy('name')
-            ->get();
+            ->paginate($this->perPage($request, 20));
 
         return TeamResource::collection($teams);
     }

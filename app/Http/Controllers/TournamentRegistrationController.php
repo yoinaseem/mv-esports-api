@@ -27,7 +27,7 @@ class TournamentRegistrationController extends Controller
         $registrations = $tournament->registrations()
             ->when($request->filled('status'), fn ($q) => $q->where('status', $request->string('status')))
             ->orderBy('registered_at')
-            ->get();
+            ->paginate($this->perPage($request, 20));
 
         return TournamentRegistrationResource::collection($registrations);
     }

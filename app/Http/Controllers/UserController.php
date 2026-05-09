@@ -37,7 +37,7 @@ class UserController extends Controller
             $query->whereHas('roles', fn ($q) => $q->where('name', $request->string('role')));
         }
 
-        return UserResource::collection($query->orderBy('id')->get());
+        return UserResource::collection($query->orderBy('id')->paginate($this->perPage($request, 20)));
     }
 
     /**

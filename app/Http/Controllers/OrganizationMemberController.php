@@ -22,7 +22,7 @@ class OrganizationMemberController extends Controller
         $members = $organization->members()
             ->when($request->boolean('active'), fn ($q) => $q->whereNull('left_at'))
             ->orderBy('joined_at')
-            ->get();
+            ->paginate($this->perPage($request, 20));
 
         return OrganizationMemberResource::collection($members);
     }

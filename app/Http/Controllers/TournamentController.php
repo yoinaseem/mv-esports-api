@@ -42,7 +42,7 @@ class TournamentController extends Controller
         }
 
         return TournamentResource::collection(
-            $query->orderByDesc('start_date')->get()
+            $query->orderByDesc('start_date')->paginate($this->perPage($request, 20))
         );
     }
 

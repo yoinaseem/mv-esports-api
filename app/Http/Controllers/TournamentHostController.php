@@ -20,7 +20,7 @@ class TournamentHostController extends Controller
         $hosts = TournamentHost::query()
             ->when($request->filled('status'), fn ($q) => $q->where('status', $request->string('status')))
             ->orderByDesc('created_at')
-            ->get();
+            ->paginate($this->perPage($request, 20));
 
         return TournamentHostResource::collection($hosts);
     }

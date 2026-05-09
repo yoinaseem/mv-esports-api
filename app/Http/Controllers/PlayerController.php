@@ -21,7 +21,7 @@ class PlayerController extends Controller
             ->when($request->filled('game_id'), fn ($q) => $q->where('game_id', $request->integer('game_id')))
             ->when($request->filled('user_id'), fn ($q) => $q->where('user_id', $request->integer('user_id')))
             ->orderBy('gamertag')
-            ->get();
+            ->paginate($this->perPage($request, 20));
 
         return PlayerResource::collection($players);
     }

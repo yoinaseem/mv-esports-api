@@ -32,7 +32,7 @@ class MatchController extends Controller
         $matches = $stage->matches()
             ->when($request->filled('bracket_type'), fn ($q) => $q->where('bracket_type', $request->string('bracket_type')))
             ->when($request->filled('status'), fn ($q) => $q->where('status', $request->string('status')))
-            ->get();
+            ->paginate($this->perPage($request, 20));
 
         return TournamentMatchResource::collection($matches);
     }

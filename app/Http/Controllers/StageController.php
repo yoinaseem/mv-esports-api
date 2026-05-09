@@ -23,7 +23,9 @@ class StageController extends Controller
      */
     public function index(Request $request, Tournament $tournament): AnonymousResourceCollection
     {
-        return StageResource::collection($tournament->stages);
+        return StageResource::collection(
+            $tournament->stages()->orderBy('sort_order')->paginate($this->perPage($request, 20))
+        );
     }
 
     /**

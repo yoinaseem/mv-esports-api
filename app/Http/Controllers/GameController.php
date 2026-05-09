@@ -20,7 +20,7 @@ class GameController extends Controller
         $games = Game::query()
             ->when(! $request->boolean('include_inactive'), fn ($q) => $q->where('is_active', true))
             ->orderBy('name')
-            ->get();
+            ->paginate($this->perPage($request, 20));
 
         return GameResource::collection($games);
     }

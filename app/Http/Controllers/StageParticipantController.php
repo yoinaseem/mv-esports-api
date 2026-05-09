@@ -28,7 +28,7 @@ class StageParticipantController extends Controller
             ->when($request->filled('status'), fn ($q) => $q->where('status', $request->string('status')))
             ->when($request->filled('group_number'), fn ($q) => $q->where('group_number', $request->integer('group_number')))
             ->orderBy('seed')
-            ->get();
+            ->paginate($this->perPage($request, 20));
 
         return StageParticipantResource::collection($participants);
     }

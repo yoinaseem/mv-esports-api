@@ -16,10 +16,10 @@ class OrganizationController extends Controller
      *
      * Public list of all organisations, sorted by name.
      */
-    public function index(): AnonymousResourceCollection
+    public function index(Request $request): AnonymousResourceCollection
     {
         return OrganizationResource::collection(
-            Organization::query()->orderBy('name')->get()
+            Organization::query()->orderBy('name')->paginate($this->perPage($request, 20))
         );
     }
 

@@ -23,7 +23,9 @@ class StageQualificationController extends Controller
     {
         abort_unless($stage->tournament_id === $tournament->id, 404);
 
-        return StageQualificationResource::collection($stage->incomingQualifications);
+        return StageQualificationResource::collection(
+            $stage->incomingQualifications()->orderBy('id')->paginate($this->perPage($request, 20))
+        );
     }
 
     /**
