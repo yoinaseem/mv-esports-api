@@ -53,6 +53,6 @@ class MatchGame extends Model
 
     public function winner(): MorphTo
     {
-        return $this->morphTo('winner_participant');
+        return $this->morphTo(__FUNCTION__, 'winner_participant_type', 'winner_participant_id');
     }
 }

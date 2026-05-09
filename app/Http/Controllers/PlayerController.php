@@ -18,6 +18,7 @@ class PlayerController extends Controller
     public function index(Request $request): AnonymousResourceCollection
     {
         $players = Player::query()
+            ->with(['user', 'game'])
             ->when($request->filled('game_id'), fn ($q) => $q->where('game_id', $request->integer('game_id')))
             ->when($request->filled('user_id'), fn ($q) => $q->where('user_id', $request->integer('user_id')))
             ->orderBy('gamertag')
@@ -33,6 +34,7 @@ class PlayerController extends Controller
      */
     public function show(Player $player): PlayerResource
     {
+        $player->load(['user', 'game']);
         return new PlayerResource($player);
     }
 

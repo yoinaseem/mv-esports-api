@@ -17,6 +17,16 @@ class PlayerResource extends JsonResource
             'rank_or_tier' => $this->rank_or_tier,
             'created_at'   => $this->created_at,
             'updated_at'   => $this->updated_at,
+
+            'user' => $this->whenLoaded('user', fn () => $this->user ? [
+                'id'           => $this->user->id,
+                'display_name' => $this->user->display_name,
+            ] : null),
+            'game' => $this->whenLoaded('game', fn () => [
+                'id'   => $this->game->id,
+                'name' => $this->game->name,
+                'slug' => $this->game->slug,
+            ]),
         ];
     }
 }

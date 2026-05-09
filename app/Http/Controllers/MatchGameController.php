@@ -25,7 +25,12 @@ class MatchGameController extends Controller
     public function index(Request $request, TournamentMatch $match): AnonymousResourceCollection
     {
         return MatchGameResource::collection(
-            $match->games()->orderBy('game_number')->paginate($this->perPage($request, 20))
+            $match->games()
+                ->with(['winner' => fn ($q) => $q->morphWith([
+                    \App\Models\Player::class => ['user'],
+                ])])
+                ->orderBy('game_number')
+                ->paginate($this->perPage($request, 20))
         );
     }
 

@@ -32,6 +32,30 @@ class TournamentResource extends JsonResource
             'max_participants'       => $this->max_participants,
             'created_at'             => $this->created_at,
             'updated_at'             => $this->updated_at,
+
+            // Nested data, included only when the relation has been eager-
+            // loaded by the controller. Tournament index / show paths load
+            // game + host.user + organization.
+            'game' => $this->whenLoaded('game', fn () => [
+                'id'       => $this->game->id,
+                'name'     => $this->game->name,
+                'slug'     => $this->game->slug,
+                'icon_url' => $this->game->icon_url,
+            ]),
+            'host' => $this->whenLoaded('host', fn () => $this->host ? [
+                'id'           => $this->host->id,
+                'display_name' => $this->host->display_name,
+                'user'         => ($this->host->relationLoaded('user') && $this->host->user) ? [
+                    'id'           => $this->host->user->id,
+                    'display_name' => $this->host->user->display_name,
+                ] : null,
+            ] : null),
+            'organization' => $this->whenLoaded('organization', fn () => $this->organization ? [
+                'id'       => $this->organization->id,
+                'name'     => $this->organization->name,
+                'slug'     => $this->organization->slug,
+                'logo_url' => $this->organization->logo_url,
+            ] : null),
         ];
     }
 }

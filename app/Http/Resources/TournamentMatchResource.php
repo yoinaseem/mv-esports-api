@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Support\ParticipantPayload;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -34,6 +35,18 @@ class TournamentMatchResource extends JsonResource
             'completed_at'                => $this->completed_at,
             'created_at'                  => $this->created_at,
             'updated_at'                  => $this->updated_at,
+
+            // Nested polymorphic participants — included only when the
+            // controller eager-loads the morph (with morphWith for Player→user).
+            'participant_a' => $this->whenLoaded('participantA', fn () =>
+                ParticipantPayload::serialize($this->participantA),
+            ),
+            'participant_b' => $this->whenLoaded('participantB', fn () =>
+                ParticipantPayload::serialize($this->participantB),
+            ),
+            'winner' => $this->whenLoaded('winner', fn () =>
+                ParticipantPayload::serialize($this->winner),
+            ),
         ];
     }
 }

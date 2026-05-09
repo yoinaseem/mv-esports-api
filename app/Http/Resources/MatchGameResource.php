@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Support\ParticipantPayload;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -22,6 +23,10 @@ class MatchGameResource extends JsonResource
             'completed_at'            => $this->completed_at,
             'created_at'              => $this->created_at,
             'updated_at'              => $this->updated_at,
+
+            'winner' => $this->whenLoaded('winner', fn () =>
+                ParticipantPayload::serialize($this->winner),
+            ),
         ];
     }
 }

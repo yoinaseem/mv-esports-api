@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Support\ParticipantPayload;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -20,6 +21,10 @@ class TournamentRegistrationResource extends JsonResource
             'registered_at'         => $this->registered_at,
             'created_at'            => $this->created_at,
             'updated_at'            => $this->updated_at,
+
+            'participant' => $this->whenLoaded('participant', fn () =>
+                ParticipantPayload::serialize($this->participant),
+            ),
         ];
     }
 }

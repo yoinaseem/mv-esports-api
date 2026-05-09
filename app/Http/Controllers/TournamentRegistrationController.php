@@ -25,6 +25,9 @@ class TournamentRegistrationController extends Controller
     public function index(Request $request, Tournament $tournament): AnonymousResourceCollection
     {
         $registrations = $tournament->registrations()
+            ->with(['participant' => fn ($q) => $q->morphWith([
+                \App\Models\Player::class => ['user'],
+            ])])
             ->when($request->filled('status'), fn ($q) => $q->where('status', $request->string('status')))
             ->orderBy('registered_at')
             ->paginate($this->perPage($request, 20));

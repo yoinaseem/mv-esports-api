@@ -25,6 +25,9 @@ class StageParticipantController extends Controller
         abort_unless($stage->tournament_id === $tournament->id, 404);
 
         $participants = $stage->participants()
+            ->with(['participant' => fn ($q) => $q->morphWith([
+                \App\Models\Player::class => ['user'],
+            ])])
             ->when($request->filled('status'), fn ($q) => $q->where('status', $request->string('status')))
             ->when($request->filled('group_number'), fn ($q) => $q->where('group_number', $request->integer('group_number')))
             ->orderBy('seed')

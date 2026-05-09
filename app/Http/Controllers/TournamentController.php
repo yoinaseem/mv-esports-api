@@ -25,6 +25,7 @@ class TournamentController extends Controller
     public function index(Request $request): AnonymousResourceCollection
     {
         $query = Tournament::query()
+            ->with(['game', 'host.user', 'organization'])
             ->when($request->filled('game_id'), fn ($q) => $q->where('game_id', $request->integer('game_id')))
             ->when($request->filled('status'), fn ($q) => $q->where('status', $request->string('status')))
             ->when($request->filled('host_id'), fn ($q) => $q->where('host_id', $request->integer('host_id')))
@@ -54,6 +55,8 @@ class TournamentController extends Controller
     public function show(Request $request, Tournament $tournament): TournamentResource
     {
         abort_unless(Gate::allows('view', $tournament), 404);
+
+        $tournament->load(['game', 'host.user', 'organization']);
 
         return new TournamentResource($tournament);
     }

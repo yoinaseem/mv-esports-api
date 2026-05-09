@@ -30,6 +30,8 @@ class OrganizationController extends Controller
      */
     public function show(Organization $organization): OrganizationResource
     {
+        $organization->load('owner');
+
         return new OrganizationResource($organization);
     }
 

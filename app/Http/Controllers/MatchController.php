@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Enums\MatchStatus;
 use App\Http\Requests\Match\UpdateMatchRequest;
 use App\Http\Resources\TournamentMatchResource;
+use App\Models\Player;
 use App\Models\Stage;
 use App\Models\Tournament;
 use App\Models\TournamentMatch;
@@ -30,6 +31,11 @@ class MatchController extends Controller
         abort_unless($stage->tournament_id === $tournament->id, 404);
 
         $matches = $stage->matches()
+            ->with([
+                'participantA' => fn ($q) => $q->morphWith([Player::class => ['user']]),
+                'participantB' => fn ($q) => $q->morphWith([Player::class => ['user']]),
+                'winner'       => fn ($q) => $q->morphWith([Player::class => ['user']]),
+            ])
             ->when($request->filled('bracket_type'), fn ($q) => $q->where('bracket_type', $request->string('bracket_type')))
             ->when($request->filled('status'), fn ($q) => $q->where('status', $request->string('status')))
             ->paginate($this->perPage($request, 20));
@@ -44,6 +50,12 @@ class MatchController extends Controller
      */
     public function show(TournamentMatch $match): TournamentMatchResource
     {
+        $match->load([
+            'participantA' => fn ($q) => $q->morphWith([Player::class => ['user']]),
+            'participantB' => fn ($q) => $q->morphWith([Player::class => ['user']]),
+            'winner'       => fn ($q) => $q->morphWith([Player::class => ['user']]),
+        ]);
+
         return new TournamentMatchResource($match);
     }
 

@@ -72,12 +72,16 @@ class TournamentMatch extends Model
 
     public function participantA(): MorphTo
     {
-        return $this->morphTo('participant_a');
+        // Pass the relation name as __FUNCTION__ so eager-loading via
+        // `with('participantA')` finds it; otherwise Laravel uses the
+        // morph "name" string ('participant_a') as the relation key
+        // and the eager-load query matches nothing.
+        return $this->morphTo(__FUNCTION__, 'participant_a_type', 'participant_a_id');
     }
 
     public function participantB(): MorphTo
     {
-        return $this->morphTo('participant_b');
+        return $this->morphTo(__FUNCTION__, 'participant_b_type', 'participant_b_id');
     }
 
     /**
@@ -85,7 +89,7 @@ class TournamentMatch extends Model
      */
     public function winner(): MorphTo
     {
-        return $this->morphTo('winner_participant');
+        return $this->morphTo(__FUNCTION__, 'winner_participant_type', 'winner_participant_id');
     }
 
     public function winnerAdvancesTo(): BelongsTo

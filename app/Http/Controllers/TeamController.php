@@ -35,6 +35,8 @@ class TeamController extends Controller
      */
     public function show(Team $team): TeamResource
     {
+        $team->load(['members.player.user']);
+
         return new TeamResource($team);
     }
 
