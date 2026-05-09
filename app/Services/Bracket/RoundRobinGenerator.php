@@ -27,6 +27,17 @@ use Illuminate\Support\Collection;
  */
 class RoundRobinGenerator implements BracketGenerator
 {
+    /**
+     * Resolve `best_of` for a given round from `stage.config.best_of_per_round`.
+     * Round numbers are within-group (the circle method's schedule index);
+     * the same key applies to the same round across all groups.
+     */
+    private function bestOfFor(Stage $stage, int $round): int
+    {
+        $map = $stage->config['best_of_per_round'] ?? [];
+        return (int) ($map[$round] ?? $map[(string) $round] ?? 1);
+    }
+
     public function generate(Stage $stage): array
     {
         $participants = $stage->participants()->orderBy('seed')->get();
@@ -168,7 +179,7 @@ class RoundRobinGenerator implements BracketGenerator
                     'bracket_position'   => $position,
                     'bracket_type'       => BracketType::Group,
                     'group_number'       => $groupNumber,
-                    'best_of'            => 1,
+                    'best_of'            => $this->bestOfFor($stage, $r + 1),
                     'participant_a_type' => $a->participant_type,
                     'participant_a_id'   => $a->participant_id,
                     'participant_b_type' => $b->participant_type,

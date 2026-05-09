@@ -23,6 +23,18 @@ use App\Models\TournamentMatch;
  */
 class SingleEliminationGenerator implements BracketGenerator
 {
+    /**
+     * Resolve `best_of` for a given round from `stage.config.best_of_per_round`.
+     * Lookup tries int + string keys (JSON object keys come back as strings,
+     * but tests / config-loaded arrays may use ints). Defaults to 1 when
+     * unspecified.
+     */
+    private function bestOfFor(Stage $stage, int $round): int
+    {
+        $map = $stage->config['best_of_per_round'] ?? [];
+        return (int) ($map[$round] ?? $map[(string) $round] ?? 1);
+    }
+
     public function generate(Stage $stage): array
     {
         $participants = $stage->participants()->orderBy('seed')->get();
@@ -69,7 +81,7 @@ class SingleEliminationGenerator implements BracketGenerator
                 'bracket_round'      => 1,
                 'bracket_position'   => $p,
                 'bracket_type'       => BracketType::Winners,
-                'best_of'            => 1,
+                'best_of'            => $this->bestOfFor($stage, 1),
             ];
 
             if ($isBye) {
@@ -107,7 +119,7 @@ class SingleEliminationGenerator implements BracketGenerator
                     'bracket_round'    => $r,
                     'bracket_position' => $p,
                     'bracket_type'     => BracketType::Winners,
-                    'best_of'          => 1,
+                    'best_of'          => $this->bestOfFor($stage, $r),
                     'status'           => MatchStatus::Pending,
                 ]);
             }
@@ -123,7 +135,7 @@ class SingleEliminationGenerator implements BracketGenerator
                 'bracket_round'    => $rounds,
                 'bracket_position' => 1,            // final is at position 0
                 'bracket_type'     => BracketType::Winners,
-                'best_of'          => 1,
+                'best_of'          => $this->bestOfFor($stage, $rounds),
                 'status'           => MatchStatus::Pending,
             ]);
         }
