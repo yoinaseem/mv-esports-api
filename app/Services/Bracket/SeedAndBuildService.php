@@ -8,6 +8,7 @@ use App\Models\Stage;
 use App\Models\StageParticipant;
 use App\Models\Tournament;
 use App\Models\TournamentMatch;
+use App\Services\Advancement\MatchAdvancementService;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -34,9 +35,8 @@ class SeedAndBuildService
 {
     public function __construct(
         private readonly EntryPointResolver $resolver,
-        private readonly SingleEliminationGenerator $singleElim,
-        private readonly DoubleEliminationGenerator $doubleElim,
-        private readonly RoundRobinGenerator $roundRobin,
+        private readonly BracketGenerationDispatcher $dispatcher,
+        private readonly MatchAdvancementService $advancement,
     ) {}
 
     /**
@@ -123,15 +123,7 @@ class SeedAndBuildService
                     ));
                 }
 
-                $generator = match ($stage->format) {
-                    'single_elim' => $this->singleElim,
-                    'double_elim' => $this->doubleElim,
-                    'round_robin' => $this->roundRobin,
-                    'swiss'       => throw new \DomainException("Stage {$stage->id} uses swiss format, which is not implemented yet."),
-                    default       => throw new \DomainException("Stage {$stage->id} has unknown format '{$stage->format}'."),
-                };
-
-                $summary = $generator->generate($stage);
+                $summary = $this->dispatcher->dispatch($stage);
                 $perStage[] = [
                     'stage_id'          => $stage->id,
                     'format'            => $stage->format,
@@ -148,6 +140,12 @@ class SeedAndBuildService
                     ));
                 }
                 $stage->update(['status' => StageStatus::InProgress]);
+
+                // Propagate any byes the generator created (matches in
+                // Walkover status from creation). One-pass — does not
+                // cascade further; round-2 slots fill but won't auto-
+                // complete without recorded games.
+                $this->advancement->propagateTerminalMatchesIn($stage);
             }
 
             if (empty($perStage)) {

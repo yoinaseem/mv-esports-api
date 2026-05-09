@@ -8,10 +8,12 @@ use App\Http\Resources\TournamentMatchResource;
 use App\Models\Stage;
 use App\Models\Tournament;
 use App\Models\TournamentMatch;
+use App\Services\Advancement\MatchAdvancementService;
 use App\Services\Match\MatchEventLogger;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Facades\DB;
 
 class MatchController extends Controller
 {
@@ -83,6 +85,7 @@ class MatchController extends Controller
         Request $request,
         TournamentMatch $match,
         MatchEventLogger $logger,
+        MatchAdvancementService $advancement,
     ): TournamentMatchResource {
         $this->authorize('walkover', $match);
 
@@ -108,20 +111,28 @@ class MatchController extends Controller
             sprintf('Cannot transition match from %s to walkover.', $previousStatus->value),
         );
 
-        $match->update([
-            'status'                  => MatchStatus::Walkover,
-            'winner_participant_type' => $data['winner_participant_type'],
-            'winner_participant_id'   => $data['winner_participant_id'],
-            'completed_at'            => now(),
-        ]);
+        // Wrap in a transaction so the status update + events + advancement
+        // cascade are all-or-nothing. Advancement opens its own transaction
+        // which becomes a savepoint here.
+        DB::transaction(function () use ($match, $data, $previousStatus, $logger, $advancement, $request) {
+            $match->update([
+                'status'                  => MatchStatus::Walkover,
+                'winner_participant_type' => $data['winner_participant_type'],
+                'winner_participant_id'   => $data['winner_participant_id'],
+                'completed_at'            => now(),
+            ]);
 
-        $logger->logWalkoverCalled($match, $request->user(), [
-            'winner_participant_type' => $data['winner_participant_type'],
-            'winner_participant_id'   => $data['winner_participant_id'],
-            'reason'                  => $data['reason'] ?? null,
-        ]);
-        $logger->logStatusChange($match, $request->user(), $previousStatus, MatchStatus::Walkover);
+            $logger->logWalkoverCalled($match, $request->user(), [
+                'winner_participant_type' => $data['winner_participant_type'],
+                'winner_participant_id'   => $data['winner_participant_id'],
+                'reason'                  => $data['reason'] ?? null,
+            ]);
+            $logger->logStatusChange($match, $request->user(), $previousStatus, MatchStatus::Walkover);
 
-        return new TournamentMatchResource($match);
+            // Cascade: propagate winner / loser, check stage / tournament completion.
+            $advancement->advance($match);
+        });
+
+        return new TournamentMatchResource($match->fresh());
     }
 }

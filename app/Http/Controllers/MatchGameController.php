@@ -13,6 +13,7 @@ use App\Services\Match\MatchEventLogger;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Facades\DB;
 
 class MatchGameController extends Controller
 {
@@ -40,24 +41,32 @@ class MatchGameController extends Controller
 
         $data = $request->validated();
 
-        $game = MatchGame::create([
-            ...$data,
-            'match_id'     => $match->id,
-            'status'       => MatchGameStatus::Completed,
-            'completed_at' => now(),
-        ]);
+        // Wrap in a transaction so the observer's auto-completion cascade
+        // (advancement service, downstream populations) becomes a savepoint.
+        // If the post-observer logging or anything else throws, the whole
+        // game-record + cascade rolls back as one unit.
+        $game = DB::transaction(function () use ($data, $match, $logger, $request) {
+            $game = MatchGame::create([
+                ...$data,
+                'match_id'     => $match->id,
+                'status'       => MatchGameStatus::Completed,
+                'completed_at' => now(),
+            ]);
 
-        // Match scores have been recomputed by the observer; refresh the
-        // match instance so the logger sees the new totals.
-        $match->refresh();
+            // Match scores have been recomputed by the observer; refresh the
+            // match instance so the logger sees the new totals.
+            $match->refresh();
 
-        $logger->logGameCompleted($game, $request->user());
-        $logger->logScoreUpdate($match, $request->user(), [
-            'game_id'     => $game->id,
-            'game_number' => $game->game_number,
-            'score_a'     => $match->score_a,
-            'score_b'     => $match->score_b,
-        ]);
+            $logger->logGameCompleted($game, $request->user());
+            $logger->logScoreUpdate($match, $request->user(), [
+                'game_id'     => $game->id,
+                'game_number' => $game->game_number,
+                'score_a'     => $match->score_a,
+                'score_b'     => $match->score_b,
+            ]);
+
+            return $game;
+        });
 
         return (new MatchGameResource($game))->response()->setStatusCode(201);
     }
@@ -74,15 +83,17 @@ class MatchGameController extends Controller
     ): MatchGameResource {
         $this->authorize('update', $game);
 
-        $game->update($request->validated());
+        DB::transaction(function () use ($request, $game, $logger) {
+            $game->update($request->validated());
 
-        $match = $game->match->fresh();
-        $logger->logScoreUpdate($match, $request->user(), [
-            'game_id' => $game->id,
-            'score_a' => $match->score_a,
-            'score_b' => $match->score_b,
-            'reason'  => 'game_updated',
-        ]);
+            $match = $game->match->fresh();
+            $logger->logScoreUpdate($match, $request->user(), [
+                'game_id' => $game->id,
+                'score_a' => $match->score_a,
+                'score_b' => $match->score_b,
+                'reason'  => 'game_updated',
+            ]);
+        });
 
         return new MatchGameResource($game);
     }
@@ -99,15 +110,17 @@ class MatchGameController extends Controller
     ): JsonResponse {
         $this->authorize('delete', $game);
 
-        $match = $game->match;
-        $game->delete();
+        DB::transaction(function () use ($game, $logger, $request) {
+            $match = $game->match;
+            $game->delete();
 
-        $match = $match->fresh();
-        $logger->logScoreUpdate($match, $request->user(), [
-            'score_a' => $match->score_a,
-            'score_b' => $match->score_b,
-            'reason'  => 'game_deleted',
-        ]);
+            $match = $match->fresh();
+            $logger->logScoreUpdate($match, $request->user(), [
+                'score_a' => $match->score_a,
+                'score_b' => $match->score_b,
+                'reason'  => 'game_deleted',
+            ]);
+        });
 
         return response()->json(['message' => 'Game deleted.']);
     }

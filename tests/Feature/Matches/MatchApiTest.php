@@ -86,6 +86,19 @@ test('admin can patch scheduled_at and best_of', function () {
         ->assertJsonPath('data.best_of', 5);
 });
 
+test('best_of must be an odd number — even values rejected at validation', function () {
+    $admin      = User::factory()->systemManager()->create();
+    $tournament = Tournament::factory()->create(['created_by_user_id' => $admin->id]);
+    $stage      = Stage::factory()->for($tournament)->create();
+    $match      = TournamentMatch::factory()->create(['stage_id' => $stage->id]);
+
+    foreach ([2, 4, 6, 10] as $even) {
+        $this->actingAs($admin)
+            ->patchJson("/api/matches/{$match->id}", ['best_of' => $even])
+            ->assertStatus(422);
+    }
+});
+
 test('best_of cannot be patched on a terminal-state match', function () {
     $admin      = User::factory()->systemManager()->create();
     $tournament = Tournament::factory()->create(['created_by_user_id' => $admin->id]);

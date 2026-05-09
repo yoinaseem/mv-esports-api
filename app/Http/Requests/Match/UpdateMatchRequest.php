@@ -20,7 +20,16 @@ class UpdateMatchRequest extends FormRequest
     {
         return [
             'scheduled_at' => ['sometimes', 'nullable', 'date'],
-            'best_of'      => ['sometimes', 'integer', 'min:1', 'max:99'],
+            // best_of must be odd. Even values produce ambiguous strict-majority
+            // outcomes (e.g. best_of=2 with score 1-1 has no winner).
+            'best_of'      => [
+                'sometimes', 'integer', 'min:1', 'max:99',
+                function ($attribute, $value, $fail) {
+                    if ($value % 2 === 0) {
+                        $fail('The best_of must be an odd number.');
+                    }
+                },
+            ],
         ];
     }
 }

@@ -187,23 +187,23 @@ class DoubleEliminationGenerator implements BracketGenerator
         // Grand final → reset match (if configured).
         // ------------------------------------------------------------------
         if ($gfReset !== null) {
-            // GF1 → reset match. The advancement service (commit 9) is
-            // responsible for deciding what to do based on which bracket
-            // GF1's winner came from:
-            //   - W-bracket finalist wins GF1: cancel the reset (Conditional
-            //     → Cancelled). The reset match never plays. The FKs below
-            //     are not consulted in that path.
-            //   - L-bracket finalist wins GF1: activate the reset (Conditional
-            //     → Pending). Both finalists replay; slot a/b assignment is
-            //     a display-only convention (no semantic difference).
-            // We point both winner-advance and loser-advance at the reset
-            // so the advancement service has an explicit pointer; the
-            // slot values are placeholders the service may overwrite.
+            // GF1 → reset match. Slot convention for the reset (when activated):
+            //   slot a = W-bracket finalist (the "first" finalist, came from W).
+            //   slot b = L-bracket finalist (the "second" finalist, came from L).
+            //
+            // The activation case is "L wins GF1" — so GF1.winner is the L
+            // finalist (→ reset.b) and GF1.loser is the W finalist (→ reset.a).
+            // FK propagation alone produces the right slot assignment.
+            //
+            // For the cancel case (W wins GF1), the reset gets populated with
+            // wrong-side data by the same propagation, but the advancement
+            // service immediately transitions Conditional → Cancelled and the
+            // slot data becomes harmless leftovers.
             $gf->update([
                 'winner_advances_to_match_id' => $gfReset->id,
-                'winner_advances_to_slot'     => 'a',
+                'winner_advances_to_slot'     => 'b',
                 'loser_advances_to_match_id'  => $gfReset->id,
-                'loser_advances_to_slot'      => 'b',
+                'loser_advances_to_slot'      => 'a',
             ]);
         }
 

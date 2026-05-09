@@ -54,7 +54,16 @@ class RoundRobinGenerator implements BracketGenerator
         $bucketed     = $this->snakeDistribute($participants, $groups);
 
         foreach ($bucketed as $groupNumber => $groupMembers) {
-            $totalMatches += $this->generateForGroup($stage, $groupMembers, $groupNumber + 1);
+            $groupNum = $groupNumber + 1; // 1-indexed for the DB
+
+            // Persist group_number on each stage_participant — downstream
+            // qualification rules (top_n_per_group) need to know which group
+            // a participant belonged to.
+            foreach ($groupMembers as $member) {
+                $member->update(['group_number' => $groupNum]);
+            }
+
+            $totalMatches += $this->generateForGroup($stage, $groupMembers, $groupNum);
         }
 
         return [
