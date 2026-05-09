@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\GameController;
+use App\Http\Controllers\HealthController;
 use App\Http\Controllers\OrganizationController;
 use App\Http\Controllers\OrganizationMemberController;
 use App\Http\Controllers\MatchController;
@@ -18,6 +19,11 @@ use App\Http\Controllers\TournamentHostController;
 use App\Http\Controllers\TournamentRegistrationController;
 use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
+
+// ---------------------------------------------------------------------------
+// Health — public, no auth. Probes DB connectivity. Returns 503 if degraded.
+// ---------------------------------------------------------------------------
+Route::get('/health', HealthController::class);
 
 // ---------------------------------------------------------------------------
 // Auth
