@@ -24,6 +24,13 @@ class WinnerIsParticipantAOrB implements ValidationRule
 
     public function validate(string $attribute, mixed $value, Closure $fail): void
     {
+        // Null winner = draw. The form request gates whether nulls are
+        // accepted (RR with allow_draws=true) — this rule just makes sure
+        // we don't reject the draw itself.
+        if ($value === null) {
+            return;
+        }
+
         $matchesA = $this->winnerType === $this->match->participant_a_type
             && (int) $value === (int) $this->match->participant_a_id;
 

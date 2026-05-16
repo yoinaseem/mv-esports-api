@@ -106,9 +106,25 @@ test('store rejects unknown config keys per format', function () {
         ->assertJsonValidationErrors(['config']);
 });
 
-test('structure is locked once registration_closed', function () {
+test('structure is unlocked in registration_closed (host recovery window)', function () {
+    // RegistrationClosed is the host's last chance to fix a misconfigured
+    // stage before seed-and-build builds the bracket. Stage CRUD is
+    // allowed here; the lock is at InProgress (matches exist by then).
     $creator    = User::factory()->systemManager()->create();
     $tournament = Tournament::factory()->state(['status' => TournamentStatus::RegistrationClosed])->create([
+        'created_by_user_id' => $creator->id,
+    ]);
+
+    $this->actingAs($creator)
+        ->postJson("/api/tournaments/{$tournament->id}/stages", [
+            'name' => 'Recovery add', 'format' => 'single_elim',
+        ])
+        ->assertStatus(201);
+});
+
+test('structure is locked once InProgress', function () {
+    $creator    = User::factory()->systemManager()->create();
+    $tournament = Tournament::factory()->state(['status' => TournamentStatus::InProgress])->create([
         'created_by_user_id' => $creator->id,
     ]);
 

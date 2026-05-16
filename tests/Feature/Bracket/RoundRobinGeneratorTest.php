@@ -99,12 +99,28 @@ test('multi-group round-robin snake-distributes seeds and produces independent g
     }
 });
 
-test('group/group_size mismatch with participant count is rejected', function () {
+test('over-capacity participants are rejected (count > groups × group_size)', function () {
     $stage = Stage::factory()->roundRobin(groups: 2, groupSize: 4)->create();
-    seedRoundRobin($stage, 7); // 2 × 4 ≠ 7
+    seedRoundRobin($stage, 9); // 9 > 2 × 4 = 8 → no seat for the overflow
 
     expect(fn () => (new RoundRobinGenerator())->generate($stage))
         ->toThrow(\DomainException::class);
+});
+
+test('under-capacity participants are accepted (count <= groups × group_size)', function () {
+    // 7 participants split snake-style across 2 groups of 4 → groups of 3 + 4.
+    // The per-group circle method handles odd group sizes via phantoms;
+    // the macro check is permissive to attrition.
+    $stage = Stage::factory()->roundRobin(groups: 2, groupSize: 4)->create();
+    seedRoundRobin($stage, 7);
+
+    (new RoundRobinGenerator())->generate($stage);
+
+    $g1 = $stage->participants()->where('group_number', 1)->count();
+    $g2 = $stage->participants()->where('group_number', 2)->count();
+    expect($g1 + $g2)->toBe(7);
+    expect(min($g1, $g2))->toBeGreaterThanOrEqual(3);
+    expect(max($g1, $g2))->toBeLessThanOrEqual(4);
 });
 
 test('round-robin matches have no advancement FKs', function () {

@@ -8,7 +8,10 @@ use App\Http\Requests\Tournament\CreateTournamentRequest;
 use App\Http\Requests\Tournament\UpdateTournamentRequest;
 use App\Http\Resources\TournamentResource;
 use App\Models\Tournament;
+use App\Services\Bracket\BracketGenerationDispatcher;
+use App\Services\Bracket\EntryPointResolver;
 use App\Services\Bracket\SeedAndBuildService;
+use App\Services\Stage\EntryStageCapacityValidator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -133,15 +136,24 @@ class TournamentController extends Controller
      *
      * Patch non-status fields (description, dates, stream URL, etc.). Status transitions are not accepted here — submitting `status` returns 403 with a hint pointing at the dedicated verb endpoints (`approve`, `reject`, `open-registration`, `close-registration`, `cancel`).
      */
-    public function update(UpdateTournamentRequest $request, Tournament $tournament): TournamentResource
-    {
+    public function update(
+        UpdateTournamentRequest $request,
+        Tournament $tournament,
+        EntryStageCapacityValidator $capacityValidator,
+    ): TournamentResource {
         $this->authorize('update', $tournament);
 
         if ($request->has('status')) {
             abort(403, 'Status transitions go through dedicated endpoints (approve, reject, open-registration, close-registration, cancel).');
         }
 
-        $tournament->update($request->validated());
+        // Apply the update inside a transaction. If the new max_participants
+        // would exceed any entry RR stage's capacity, the validator aborts 422
+        // and the transaction rolls back.
+        DB::transaction(function () use ($request, $tournament, $capacityValidator) {
+            $tournament->update($request->validated());
+            $capacityValidator->validate($tournament->fresh());
+        });
 
         return new TournamentResource($tournament);
     }
@@ -209,9 +221,19 @@ class TournamentController extends Controller
      * Open registration
      *
      * Host or manager. Transitions `Draft` → `RegistrationOpen`. Requires the tournament to have at least one stage configured — this is the natural gate for "no half-built tournaments going live." After this, participants can submit registrations via `POST /api/tournaments/{id}/registrations`.
+     *
+     * Lock-in gate: before flipping status, the entry-stage capacity
+     * validator runs in strict-equality mode (status is still `Draft`).
+     * This is the host's "I commit to these numbers" moment — any
+     * `cap !== max_participants` mismatch on an RR entry stage is
+     * rejected here. After this point the check relaxes so the host
+     * can adjust structure as registrations come in.
      */
-    public function openRegistration(Request $request, Tournament $tournament): TournamentResource
-    {
+    public function openRegistration(
+        Request $request,
+        Tournament $tournament,
+        EntryStageCapacityValidator $capacityValidator,
+    ): TournamentResource {
         $this->authorize('openRegistration', $tournament);
 
         // State-machine guard first — wrong-state rejection takes precedence
@@ -229,6 +251,10 @@ class TournamentController extends Controller
             422,
             'Cannot open registration: the tournament has no stages defined.'
         );
+
+        // Lock-in check fires while status is still Draft so the validator
+        // applies strict equality. If it aborts, the transition doesn't run.
+        $capacityValidator->validate($tournament);
 
         $this->transition($tournament, TournamentStatus::RegistrationOpen);
 
@@ -290,6 +316,58 @@ class TournamentController extends Controller
 
         return (new TournamentResource($tournament->fresh()))
             ->additional(['bracket_summary' => $summary]);
+    }
+
+    /**
+     * Preview the seed-and-build outcome
+     *
+     * Host or manager. Dry-run of `seedAndBuild` — computes what the entry stage(s) would look like with the current approved registrations and current seed assignments, without persisting anything. Useful for the seeding UI: lets the host preview group splits / byes / bracket size before committing. Only available in `RegistrationClosed` (matches `seedAndBuild`'s precondition).
+     *
+     * Returns one entry per stage with an `all` rule from a null-source qualification (the entry stages). Each entry has the format-specific shape returned by `RoundRobinGenerator::preview` / `SingleEliminationGenerator::preview` / `DoubleEliminationGenerator::preview`.
+     */
+    public function buildPreview(
+        Request $request,
+        Tournament $tournament,
+        EntryPointResolver $resolver,
+        BracketGenerationDispatcher $dispatcher,
+    ): JsonResponse {
+        $this->authorize('seedAndBuild', $tournament);
+
+        abort_unless(
+            $tournament->status === TournamentStatus::RegistrationClosed,
+            422,
+            sprintf('Preview is only available in registration_closed; tournament is %s.', $tournament->status->value),
+        );
+
+        $stages = $tournament->stages()
+            ->with('incomingQualifications')
+            ->get()
+            ->filter(fn ($s) => $s->incomingQualifications
+                ->contains(fn ($q) => $q->source_stage_id === null && $q->rule_type === 'all'));
+
+        abort_if(
+            $stages->isEmpty(),
+            422,
+            'Preview unavailable: tournament has no entry stage (no qualification with source_stage_id=null and rule_type=all).',
+        );
+
+        $stagePayloads = $stages->map(function ($stage) use ($tournament, $resolver, $dispatcher) {
+            $participants = $resolver->compute($tournament, $stage, loadParticipants: true);
+            $preview      = $dispatcher->preview($stage, $participants);
+
+            return array_merge(
+                [
+                    'stage_id' => $stage->id,
+                    'name'     => $stage->name,
+                ],
+                $preview,
+            );
+        })->values();
+
+        return response()->json([
+            'tournament_id' => $tournament->id,
+            'stages'        => $stagePayloads,
+        ]);
     }
 
     // -----------------------------------------------------------------------

@@ -150,6 +150,15 @@ class StandingsCalculator
     // Round robin
     // -----------------------------------------------------------------------
 
+    /**
+     * Points scoring for round-robin standings: 3 for a win, 1 for a draw,
+     * 0 for a loss. Football's W/D/L convention. Stages without
+     * `allow_draws` produce no draws, so points reduce to `3 * wins` and
+     * the ordering is identical to the old wins-desc tiebreaker.
+     */
+    private const POINTS_WIN  = 3;
+    private const POINTS_DRAW = 1;
+
     private function computeRoundRobin(Stage $stage): void
     {
         $participants = $stage->participants()->get();
@@ -162,7 +171,7 @@ class StandingsCalculator
             $groupMatches = $matches->filter(fn (TournamentMatch $m) => $m->group_number === $groupKey);
 
             $sorted = $groupParticipants->sort(function (StageParticipant $a, StageParticipant $b) use ($groupMatches) {
-                $cmp = $this->wins($b, $groupMatches) <=> $this->wins($a, $groupMatches);
+                $cmp = $this->points($b, $groupMatches) <=> $this->points($a, $groupMatches);
                 if ($cmp !== 0) return $cmp;
                 $cmp = $this->gameWins($b, $groupMatches) <=> $this->gameWins($a, $groupMatches);
                 if ($cmp !== 0) return $cmp;
@@ -177,13 +186,27 @@ class StandingsCalculator
         }
     }
 
-    /** Match wins for $sp across $matches. */
-    private function wins(StageParticipant $sp, \Illuminate\Support\Collection $matches): int
+    /** Points for $sp across $matches: 3 per win, 1 per draw. */
+    private function points(StageParticipant $sp, \Illuminate\Support\Collection $matches): int
     {
-        return $matches->filter(fn (TournamentMatch $m) =>
+        $wins = $matches->filter(fn (TournamentMatch $m) =>
             $m->winner_participant_type === $sp->participant_type
             && (int) $m->winner_participant_id === (int) $sp->participant_id,
         )->count();
+
+        $draws = $matches->filter(function (TournamentMatch $m) use ($sp) {
+            // A drawn match is Completed with no winner. Count it only if
+            // $sp is one of the two participants.
+            if ($m->status !== MatchStatus::Completed) return false;
+            if ($m->winner_participant_id !== null)   return false;
+            $isA = $m->participant_a_type === $sp->participant_type
+                && (int) $m->participant_a_id === (int) $sp->participant_id;
+            $isB = $m->participant_b_type === $sp->participant_type
+                && (int) $m->participant_b_id === (int) $sp->participant_id;
+            return $isA || $isB;
+        })->count();
+
+        return self::POINTS_WIN * $wins + self::POINTS_DRAW * $draws;
     }
 
     /** Game-level win count: sum of $sp's score in matches they won. */

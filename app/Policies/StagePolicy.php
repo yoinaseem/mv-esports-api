@@ -60,7 +60,11 @@ class StagePolicy
 
     /**
      * Helper used by the controller to decide whether structure mutations
-     * are allowed. Locked once registration_closed (per design discussion).
+     * are allowed. Unlocked while pre-build — the host's last chance to
+     * fix a misconfigured stage is between RegistrationClosed and
+     * seed-and-build, so RegistrationClosed is in. Locked once InProgress
+     * because matches exist by then; changing the bracket retroactively
+     * breaks advancement.
      */
     public static function structureUnlocked(Tournament $tournament): bool
     {
@@ -68,6 +72,7 @@ class StagePolicy
             TournamentStatus::DraftPendingReview,
             TournamentStatus::Draft,
             TournamentStatus::RegistrationOpen,
+            TournamentStatus::RegistrationClosed,
         ], true);
     }
 }

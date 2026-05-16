@@ -8,9 +8,11 @@ use App\Models\Stage;
 use App\Models\StageQualification;
 use App\Models\Tournament;
 use App\Policies\StagePolicy;
+use App\Services\Stage\EntryStageCapacityValidator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Facades\DB;
 
 class StageQualificationController extends Controller
 {
@@ -33,8 +35,12 @@ class StageQualificationController extends Controller
      *
      * Adds a rule that feeds participants into this stage. Tournament admin only; structure locked once registration_closed. Validates that the proposed rule wouldn't create a cycle in the dependency graph and that the source stage (if any) belongs to the same tournament.
      */
-    public function store(CreateStageQualificationRequest $request, Tournament $tournament, Stage $stage): JsonResponse
-    {
+    public function store(
+        CreateStageQualificationRequest $request,
+        Tournament $tournament,
+        Stage $stage,
+        EntryStageCapacityValidator $capacityValidator,
+    ): JsonResponse {
         abort_unless($stage->tournament_id === $tournament->id, 404);
         $this->authorize('create', [StageQualification::class, $stage]);
 
@@ -44,10 +50,17 @@ class StageQualificationController extends Controller
             'Stage structure is locked once registration has closed.'
         );
 
-        $qualification = StageQualification::create([
-            ...$request->validated(),
-            'target_stage_id' => $stage->id,
-        ]);
+        // Wrap in a transaction so the capacity check on the freshly-promoted
+        // entry stage rolls back the qualification if it would create a
+        // capacity-vs-max mismatch.
+        $qualification = DB::transaction(function () use ($request, $stage, $tournament, $capacityValidator) {
+            $q = StageQualification::create([
+                ...$request->validated(),
+                'target_stage_id' => $stage->id,
+            ]);
+            $capacityValidator->validate($tournament->fresh());
+            return $q;
+        });
 
         return (new StageQualificationResource($qualification))->response()->setStatusCode(201);
     }

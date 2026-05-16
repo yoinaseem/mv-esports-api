@@ -99,7 +99,7 @@ test('Test Tournament 2 — RR groups feeding into DE playoffs, bo3 throughout, 
     $groupStage = $stages[0];
     expect($groupStage->format)->toBe('round_robin');
     expect($groupStage->status)->toBe(StageStatus::Pending);
-    expect($groupStage->config)->toBe(['groups' => 2, 'group_size' => 4, 'best_of' => 3]);
+    expect($groupStage->config)->toBe(['groups' => 2, 'group_size' => 4, 'best_of' => 3, 'allow_draws' => true]);
 
     $playoffStage = $stages[1];
     expect($playoffStage->format)->toBe('double_elim');

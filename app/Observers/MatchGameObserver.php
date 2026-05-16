@@ -97,24 +97,42 @@ class MatchGameObserver
         $threshold = intdiv($match->best_of, 2) + 1;
         $aWins     = $match->score_a >= $threshold;
         $bWins     = $match->score_b >= $threshold;
-        if (! $aWins && ! $bWins) {
+
+        if ($aWins || $bWins) {
+            $winnerType = $aWins ? $match->participant_a_type : $match->participant_b_type;
+            $winnerId   = $aWins ? $match->participant_a_id   : $match->participant_b_id;
+
+            $previousStatus = $match->status;
+            $match->update([
+                'status'                  => MatchStatus::Completed,
+                'winner_participant_type' => $winnerType,
+                'winner_participant_id'   => $winnerId,
+                'completed_at'            => now(),
+            ]);
+            $this->logger->logStatusChange($match, null, $previousStatus, MatchStatus::Completed);
+
+            // Cascade: FK propagation, stage completion check, tournament completion check.
+            // Wrapped in DB::transaction inside the service.
+            $this->advancement->advance($match);
             return;
         }
 
-        $winnerType = $aWins ? $match->participant_a_type : $match->participant_b_type;
-        $winnerId   = $aWins ? $match->participant_a_id   : $match->participant_b_id;
+        // No strict-majority winner. If the stage allows draws (RR with
+        // allow_draws=true) and every game in the series has been recorded,
+        // the match is a draw — winner_participant_* stays null. The
+        // FkPropagator already short-circuits on null winner so the cascade
+        // is safe (RR doesn't wire advancement FKs anyway).
+        $drawsAllowed = (bool) ($match->stage->config['allow_draws'] ?? false);
+        $allGamesPlayed = $match->games()->count() >= $match->best_of;
 
-        $previousStatus = $match->status;
-        $match->update([
-            'status'                  => MatchStatus::Completed,
-            'winner_participant_type' => $winnerType,
-            'winner_participant_id'   => $winnerId,
-            'completed_at'            => now(),
-        ]);
-        $this->logger->logStatusChange($match, null, $previousStatus, MatchStatus::Completed);
-
-        // Cascade: FK propagation, stage completion check, tournament completion check.
-        // Wrapped in DB::transaction inside the service.
-        $this->advancement->advance($match);
+        if ($drawsAllowed && $allGamesPlayed) {
+            $previousStatus = $match->status;
+            $match->update([
+                'status'       => MatchStatus::Completed,
+                'completed_at' => now(),
+            ]);
+            $this->logger->logStatusChange($match, null, $previousStatus, MatchStatus::Completed);
+            $this->advancement->advance($match);
+        }
     }
 }

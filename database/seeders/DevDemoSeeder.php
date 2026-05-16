@@ -289,7 +289,10 @@ class DevDemoSeeder extends Seeder
 
     private function configureStagesTwo(Tournament $tournament): void
     {
-        // Stage 1 — round robin: 2 groups of 4, bo3.
+        // Stage 1 — round robin: 2 groups of 4, bo3, draws allowed (RR
+        // group stage is the natural home for them — Rocket League games
+        // can end in regulation ties; the standings calculator scores a
+        // draw at 1 pt and a win at 3 pts).
         $groupStage = Stage::create([
             'tournament_id' => $tournament->id,
             'name'          => 'Group Stage',
@@ -299,9 +302,10 @@ class DevDemoSeeder extends Seeder
             'end_date'      => null,
             'status'        => StageStatus::Pending,
             'config'        => [
-                'groups'     => 2,
-                'group_size' => 4,
-                'best_of'    => 3,
+                'groups'      => 2,
+                'group_size'  => 4,
+                'best_of'     => 3,
+                'allow_draws' => true,
             ],
         ]);
 

@@ -15,16 +15,26 @@ class CreateMatchGameRequest extends FormRequest
 
     public function rules(): array
     {
-        /** @var TournamentMatch $match */
-        $match = $this->route('match');
-        $type  = $this->input('winner_participant_type');
+        /** @var TournamentMatch|null $match */
+        $match        = $this->route('match');
+        $type         = $this->input('winner_participant_type');
+        $drawsAllowed = (bool) ($match?->stage?->config['allow_draws'] ?? false);
 
+        // When the parent stage has draws enabled, both winner fields may be
+        // null (representing a drawn game). `required_with` on each field
+        // ensures the host can't submit one without the other — either both
+        // identify a winner or neither does.
         return [
             'game_number'             => ['required', 'integer', 'min:1', 'unique:match_games,game_number,NULL,id,match_id,'.($match?->id ?? 0)],
-            'winner_participant_type' => ['required', 'string', 'in:team,player'],
+            'winner_participant_type' => [
+                $drawsAllowed ? 'nullable' : 'required',
+                'string', 'in:team,player',
+                'required_with:winner_participant_id',
+            ],
             'winner_participant_id'   => [
-                'required',
+                $drawsAllowed ? 'nullable' : 'required',
                 'integer',
+                'required_with:winner_participant_type',
                 ...($match && $type ? [new WinnerIsParticipantAOrB($match, $type)] : []),
             ],
             'score_a'                 => ['nullable', 'integer', 'min:0'],

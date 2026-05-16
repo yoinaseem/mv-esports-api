@@ -9,6 +9,7 @@ use App\Http\Resources\StageResource;
 use App\Models\Stage;
 use App\Models\Tournament;
 use App\Policies\StagePolicy;
+use App\Services\Stage\EntryStageCapacityValidator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -68,8 +69,12 @@ class StageController extends Controller
      *
      * Tournament admin only. Locked once tournament is past `RegistrationOpen`. Patch any of `name`, `format`, `sort_order`, dates, `config`. Format change re-validates the config against the new format.
      */
-    public function update(UpdateStageRequest $request, Tournament $tournament, Stage $stage): StageResource
-    {
+    public function update(
+        UpdateStageRequest $request,
+        Tournament $tournament,
+        Stage $stage,
+        EntryStageCapacityValidator $capacityValidator,
+    ): StageResource {
         abort_unless($stage->tournament_id === $tournament->id, 404);
         $this->authorize('update', $stage);
 
@@ -79,7 +84,14 @@ class StageController extends Controller
             'Stage structure is locked once registration has closed.'
         );
 
-        $stage->update($request->validated());
+        // Apply the update inside a transaction and validate the post-update
+        // state against tournament.max_participants. If the new config would
+        // leave an entry RR stage seating fewer than max, abort 422 — the
+        // transaction rolls back so the stage row is unchanged.
+        DB::transaction(function () use ($request, $stage, $tournament, $capacityValidator) {
+            $stage->update($request->validated());
+            $capacityValidator->validate($tournament->fresh());
+        });
 
         return new StageResource($stage);
     }

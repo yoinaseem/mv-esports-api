@@ -16,15 +16,22 @@ class UpdateMatchGameRequest extends FormRequest
     public function rules(): array
     {
         /** @var MatchGame|null $game */
-        $game  = $this->route('game');
-        $match = $game?->match;
-        $type  = $this->input('winner_participant_type', $game?->winner_participant_type);
+        $game         = $this->route('game');
+        $match        = $game?->match;
+        $type         = $this->input('winner_participant_type', $game?->winner_participant_type);
+        $drawsAllowed = (bool) ($match?->stage?->config['allow_draws'] ?? false);
 
         return [
-            'winner_participant_type' => ['sometimes', 'string', 'in:team,player'],
+            // Both winner fields nullable when stage allows draws; on PATCH the
+            // host can flip a previously-decided game back to a draw by sending
+            // {winner_participant_type: null, winner_participant_id: null}.
+            'winner_participant_type' => $drawsAllowed
+                ? ['sometimes', 'nullable', 'string', 'in:team,player']
+                : ['sometimes', 'string', 'in:team,player'],
             'winner_participant_id'   => [
                 'sometimes',
-                'integer',
+                $drawsAllowed ? 'nullable' : 'integer',
+                ...($drawsAllowed ? ['integer'] : []),
                 ...($match && $type ? [new WinnerIsParticipantAOrB($match, $type)] : []),
             ],
             'score_a'                 => ['sometimes', 'nullable', 'integer', 'min:0'],

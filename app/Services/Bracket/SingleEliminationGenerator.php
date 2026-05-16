@@ -7,6 +7,7 @@ use App\Enums\MatchStatus;
 use App\Models\Stage;
 use App\Models\StageParticipant;
 use App\Models\TournamentMatch;
+use Illuminate\Support\Collection;
 
 /**
  * Single-elimination bracket generator.
@@ -160,6 +161,88 @@ class SingleEliminationGenerator implements BracketGenerator
         return [
             'matches_generated' => $totalGenerated,
             'byes_assigned'     => $byes,
+        ];
+    }
+
+    /**
+     * Dry-run preview — mirrors `generate()` round-1 logic without persisting.
+     * Shows the bracket size after power-of-2 padding, which seeds receive
+     * byes, and the round-1 matchups. Subsequent rounds aren't included in
+     * the response (they're empty skeletons until advancement fills them).
+     *
+     * Total match count: `bracket_size - 1` (single-elim) plus the third-place
+     * match if configured.
+     *
+     * @param Collection<int, StageParticipant> $participants
+     */
+    public function preview(Stage $stage, Collection $participants): array
+    {
+        $count = $participants->count();
+
+        if ($count < 2) {
+            return [
+                'format'         => 'single_elim',
+                'buildable'      => false,
+                'reason'         => sprintf('single_elim requires at least 2 participants; got %d.', $count),
+                'approved_count' => $count,
+            ];
+        }
+
+        $bracketSize = SeedOrderPattern::nextPowerOfTwo($count);
+        $seedOrder   = SeedOrderPattern::forSize($bracketSize);
+        $bySeed      = $participants->keyBy(fn (StageParticipant $sp) => (int) $sp->seed);
+        $thirdPlace  = ($stage->config['third_place_match'] ?? false) === true && $bracketSize >= 4;
+
+        $round1 = [];
+        $byes   = 0;
+        $r1Count = $bracketSize / 2;
+
+        for ($p = 0; $p < $r1Count; $p++) {
+            $seedA = $seedOrder[$p * 2];
+            $seedB = $seedOrder[$p * 2 + 1];
+            $partA = $bySeed->get($seedA);
+            $partB = $bySeed->get($seedB);
+
+            $isBye = $partA === null || $partB === null;
+            if ($isBye) {
+                $byes++;
+            }
+
+            $round1[] = [
+                'position' => $p,
+                'kind'     => $isBye ? 'bye' : 'match',
+                'a'        => $partA ? $this->participantSnapshot($partA) : null,
+                'b'        => $partB ? $this->participantSnapshot($partB) : null,
+            ];
+        }
+
+        $matchesTotal = $bracketSize - 1 + ($thirdPlace ? 1 : 0);
+
+        return [
+            'format'         => 'single_elim',
+            'buildable'      => true,
+            'approved_count' => $count,
+            'bracket_size'   => $bracketSize,
+            'byes'           => $byes,
+            'matches_total'  => $matchesTotal,
+            'config'         => [
+                'best_of'           => (int) ($stage->config['best_of']           ?? 1),
+                'third_place_match' => $thirdPlace,
+            ],
+            'round_1'        => $round1,
+        ];
+    }
+
+    private function participantSnapshot(StageParticipant $sp): array
+    {
+        $participant = $sp->getRelation('participant') ?? null;
+
+        return [
+            'seed'             => (int) $sp->seed,
+            'registration_id'  => $sp->getAttribute('_registration_id'),
+            'participant_type' => $sp->participant_type,
+            'participant_id'   => (int) $sp->participant_id,
+            'name'             => $participant?->name ?? $participant?->gamertag ?? null,
         ];
     }
 }

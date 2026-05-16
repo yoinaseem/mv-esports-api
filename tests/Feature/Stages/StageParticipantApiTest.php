@@ -183,9 +183,27 @@ test('admin can patch seed, group_number, status', function () {
         ->assertJsonPath('data.group_number', 2);
 });
 
-test('after registration_closed, seed cannot be changed but status can', function () {
+test('seed remains mutable in registration_closed (host recovery window)', function () {
+    // RegistrationClosed is the recovery window — host can still re-seed
+    // before seed-and-build builds the bracket. The lock is at InProgress.
     $creator    = User::factory()->systemManager()->create();
     $tournament = Tournament::factory()->state(['status' => \App\Enums\TournamentStatus::RegistrationClosed])->create([
+        'created_by_user_id' => $creator->id,
+    ]);
+    $stage = Stage::factory()->for($tournament)->create();
+    $sp    = StageParticipant::factory()->for($stage)->create(['seed' => 1]);
+
+    $this->actingAs($creator)
+        ->patchJson("/api/tournaments/{$tournament->id}/stages/{$stage->id}/participants/{$sp->id}", [
+            'seed' => 5,
+        ])
+        ->assertOk()
+        ->assertJsonPath('data.seed', 5);
+});
+
+test('after InProgress, seed cannot be changed but status can', function () {
+    $creator    = User::factory()->systemManager()->create();
+    $tournament = Tournament::factory()->state(['status' => \App\Enums\TournamentStatus::InProgress])->create([
         'created_by_user_id' => $creator->id,
     ]);
     $stage = Stage::factory()->for($tournament)->create();

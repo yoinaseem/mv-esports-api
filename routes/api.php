@@ -166,13 +166,15 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/tournaments/{tournament}/open-registration',   [TournamentController::class, 'openRegistration']);
     Route::post('/tournaments/{tournament}/close-registration',  [TournamentController::class, 'closeRegistration']);
     Route::post('/tournaments/{tournament}/cancel',              [TournamentController::class, 'cancel']);
-    Route::post('/tournaments/{tournament}/seed-and-build',      [TournamentController::class, 'seedAndBuild']);
+    Route::post('/tournaments/{tournament}/seed-and-build',          [TournamentController::class, 'seedAndBuild']);
+    Route::get('/tournaments/{tournament}/seed-and-build/preview',   [TournamentController::class, 'buildPreview']);
 
     // Tournament registrations — nested. Store/update/destroy all gate via
     // controller logic (host/manager for admin paths; participant owner
     // for self-withdraw).
     Route::scopeBindings()->prefix('tournaments/{tournament}')->group(function () {
         Route::post('registrations', [TournamentRegistrationController::class, 'store']);
+        Route::match(['put', 'patch'], 'registrations/seeds', [TournamentRegistrationController::class, 'bulkSeed']);
         Route::match(['put', 'patch'], 'registrations/{registration}', [TournamentRegistrationController::class, 'update']);
         Route::delete('registrations/{registration}', [TournamentRegistrationController::class, 'destroy']);
     });

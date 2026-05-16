@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Enums\RegistrationStatus;
 use App\Enums\TournamentStatus;
+use App\Http\Requests\TournamentRegistration\BulkSeedRegistrationsRequest;
 use App\Http\Requests\TournamentRegistration\CreateRegistrationRequest;
 use App\Http\Requests\TournamentRegistration\UpdateRegistrationRequest;
 use App\Http\Resources\TournamentRegistrationResource;
@@ -187,6 +188,91 @@ class TournamentRegistrationController extends Controller
         }
 
         return new TournamentRegistrationResource($registration);
+    }
+
+    /**
+     * Bulk-assign seeds to all approved registrations
+     *
+     * Tournament admin only. Accepts a full-set assignment of seeds to the tournament's approved registrations — `assignments` must include every approved registration exactly once, and the seed values must form a contiguous `1..N` sequence (no gaps, no duplicates). Atomic: all seeds update in one transaction, or none do.
+     *
+     * Available in `RegistrationOpen` and `RegistrationClosed`. Seeds are read by the bracket generator at `seed-and-build`; once that runs, seeds are baked into `stage_participants` and further changes here have no effect.
+     *
+     * Use cases: the host arranges a drag-and-drop seeding UI on the frontend, posts the final ordering as one bulk update. Random shuffles are client-side (frontend picks the random ordering, posts it).
+     */
+    public function bulkSeed(
+        BulkSeedRegistrationsRequest $request,
+        Tournament $tournament,
+    ): AnonymousResourceCollection {
+        abort_unless($this->isTournamentAdmin($request->user(), $tournament), 403);
+
+        abort_unless(
+            in_array($tournament->status, [
+                TournamentStatus::RegistrationOpen,
+                TournamentStatus::RegistrationClosed,
+            ], true),
+            422,
+            sprintf('Bulk seed only available in registration_open or registration_closed; tournament is %s.', $tournament->status->value),
+        );
+
+        $assignments = collect($request->validated()['assignments']);
+
+        // Per-input uniqueness.
+        if ($assignments->pluck('registration_id')->duplicates()->isNotEmpty()) {
+            abort(422, 'Duplicate registration_id in assignments.');
+        }
+        if ($assignments->pluck('seed')->duplicates()->isNotEmpty()) {
+            abort(422, 'Duplicate seed value in assignments.');
+        }
+
+        // Seeds form 1..N.
+        $seeds   = $assignments->pluck('seed')->sort()->values();
+        $expected = collect(range(1, $assignments->count()));
+        if ($seeds->toArray() !== $expected->toArray()) {
+            abort(422, sprintf(
+                'Seeds must form a contiguous 1..%d sequence; got [%s].',
+                $assignments->count(),
+                $seeds->implode(', '),
+            ));
+        }
+
+        // Full-set: every approved registration covered exactly once.
+        $approved = $tournament->registrations()
+            ->where('status', RegistrationStatus::Approved->value)
+            ->get()
+            ->keyBy('id');
+
+        if ($assignments->count() !== $approved->count()) {
+            abort(422, sprintf(
+                'Full-set assignment required: %d approved registrations exist; got %d assignments.',
+                $approved->count(),
+                $assignments->count(),
+            ));
+        }
+
+        foreach ($assignments as $a) {
+            if (! $approved->has($a['registration_id'])) {
+                abort(422, sprintf(
+                    'Registration %d is not an approved registration of this tournament.',
+                    $a['registration_id'],
+                ));
+            }
+        }
+
+        DB::transaction(function () use ($assignments, $approved) {
+            foreach ($assignments as $a) {
+                $approved->get($a['registration_id'])->update(['seed' => $a['seed']]);
+            }
+        });
+
+        $refreshed = $tournament->registrations()
+            ->where('status', RegistrationStatus::Approved->value)
+            ->with(['participant' => fn ($q) => $q->morphWith([
+                \App\Models\Player::class => ['user'],
+            ])])
+            ->orderBy('seed')
+            ->get();
+
+        return TournamentRegistrationResource::collection($refreshed);
     }
 
     /**

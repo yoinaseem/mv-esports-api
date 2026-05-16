@@ -75,7 +75,7 @@ class StageConfigMatchesFormat implements ValidationRule
 
     private function validateRoundRobin(array $config, Closure $fail): void
     {
-        $allowed = ['groups', 'group_size', 'best_of'];
+        $allowed = ['groups', 'group_size', 'best_of', 'allow_draws', 'legs'];
         $extra = array_diff(array_keys($config), $allowed);
         if (! empty($extra)) {
             $fail(sprintf('Unexpected keys for round_robin: %s. Allowed: %s.', implode(', ', $extra), implode(', ', $allowed)));
@@ -94,6 +94,12 @@ class StageConfigMatchesFormat implements ValidationRule
         }
         if (isset($config['best_of'])) {
             $this->validateBestOf('round_robin', $config['best_of'], $fail);
+        }
+        if (isset($config['allow_draws']) && ! is_bool($config['allow_draws'])) {
+            $fail('round_robin.allow_draws must be a boolean.');
+        }
+        if (isset($config['legs']) && (! is_int($config['legs']) || $config['legs'] < 1 || $config['legs'] > 10)) {
+            $fail('round_robin.legs must be an integer between 1 and 10.');
         }
     }
 

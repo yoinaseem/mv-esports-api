@@ -5,7 +5,9 @@ namespace App\Services\Bracket;
 use App\Enums\BracketType;
 use App\Enums\MatchStatus;
 use App\Models\Stage;
+use App\Models\StageParticipant;
 use App\Models\TournamentMatch;
+use Illuminate\Support\Collection;
 
 /**
  * Double-elimination bracket generator.
@@ -333,5 +335,93 @@ class DoubleEliminationGenerator implements BracketGenerator
             }
         }
         return $out;
+    }
+
+    /**
+     * Dry-run preview. DE has no graceful attrition (drop pattern hardcoded
+     * for {4,8,16,32}), so the preview is binary: either count is in the
+     * supported set and the response shows the winners-round-1 matchups
+     * plus total match counts per bracket, or `buildable: false` with the
+     * supported sizes named.
+     *
+     * Match counts (per supported size n):
+     *   - Winners bracket:  n - 1 matches
+     *   - Losers bracket:   n - 2 matches
+     *   - Grand final:      1 match (+ 1 reset match if `grand_final_reset`)
+     *
+     * @param Collection<int, StageParticipant> $participants
+     */
+    public function preview(Stage $stage, Collection $participants): array
+    {
+        $count        = $participants->count();
+        $supported    = [4, 8, 16, 32];
+        $resetEnabled = (bool) ($stage->config['grand_final_reset'] ?? false);
+
+        if (! in_array($count, $supported, true)) {
+            return [
+                'format'          => 'double_elim',
+                'buildable'       => false,
+                'reason'          => sprintf(
+                    'double_elim requires exactly %s participants; got %d.',
+                    implode(', ', $supported),
+                    $count,
+                ),
+                'approved_count'  => $count,
+                'supported_sizes' => $supported,
+            ];
+        }
+
+        $seedOrder = SeedOrderPattern::forSize($count);
+        $bySeed    = $participants->keyBy(fn (StageParticipant $sp) => (int) $sp->seed);
+
+        $winnersRound1 = [];
+        $r1Count = $count / 2;
+        for ($p = 0; $p < $r1Count; $p++) {
+            $seedA = $seedOrder[$p * 2];
+            $seedB = $seedOrder[$p * 2 + 1];
+            $partA = $bySeed->get($seedA);
+            $partB = $bySeed->get($seedB);
+
+            $winnersRound1[] = [
+                'position' => $p,
+                'a'        => $partA ? $this->participantSnapshot($partA) : null,
+                'b'        => $partB ? $this->participantSnapshot($partB) : null,
+            ];
+        }
+
+        $winnersMatches = $count - 1;
+        $losersMatches  = $count - 2;
+        $grandFinalMatches = 1 + ($resetEnabled ? 1 : 0);
+        $matchesTotal = $winnersMatches + $losersMatches + $grandFinalMatches;
+
+        return [
+            'format'         => 'double_elim',
+            'buildable'      => true,
+            'approved_count' => $count,
+            'matches_total'  => $matchesTotal,
+            'config'         => [
+                'best_of'           => (int) ($stage->config['best_of'] ?? 1),
+                'grand_final_reset' => $resetEnabled,
+            ],
+            'bracket_counts' => [
+                'winners'     => $winnersMatches,
+                'losers'      => $losersMatches,
+                'grand_final' => $grandFinalMatches,
+            ],
+            'winners_round_1' => $winnersRound1,
+        ];
+    }
+
+    private function participantSnapshot(StageParticipant $sp): array
+    {
+        $participant = $sp->getRelation('participant') ?? null;
+
+        return [
+            'seed'             => (int) $sp->seed,
+            'registration_id'  => $sp->getAttribute('_registration_id'),
+            'participant_type' => $sp->participant_type,
+            'participant_id'   => (int) $sp->participant_id,
+            'name'             => $participant?->name ?? $participant?->gamertag ?? null,
+        ];
     }
 }

@@ -11,12 +11,19 @@ use Illuminate\Support\Collection;
 
 /**
  * Round-robin generator. Each participant plays every other in their
- * group exactly once.
+ * group `legs` times (default 1).
  *
  * Group split: snake distribution by seed (so groups balance in seed
  * strength). Within each group: the classic "circle method" for
  * round-robin scheduling — fix one seat, rotate the rest one position
  * per round, pair across the circle.
+ *
+ * Multi-leg: the entire (n-1)-round schedule is replayed `legs` times.
+ * Leg L's rounds occupy `bracket_round` values `L*(n-1)+1 .. (L+1)*(n-1)`,
+ * so leg 1 is rounds 1..n-1, leg 2 is rounds n..2n-2, etc. Pairings
+ * repeat in the same order each leg; participant a/b order is preserved
+ * across legs (no home/away swap — meaningless for esports and awkward
+ * on odd leg counts).
  *
  * Odd group sizes get a phantom participant; rounds where a real
  * participant pairs with the phantom are bye rounds and produce no
@@ -39,20 +46,25 @@ class RoundRobinGenerator implements BracketGenerator
         $groups    = max(1, (int) ($stage->config['groups'] ?? 1));
         $groupSize = (int) ($stage->config['group_size'] ?? $count);
 
-        if ($groups * $groupSize !== $count) {
+        // Accept under-capacity (snake distribution naturally produces uneven
+        // group sizes — e.g., 7 across 2 groups of 4 → 3+4 — and the per-group
+        // circle method already pads odd sizes with a phantom). Reject only
+        // over-capacity, where there's no seat for the overflow.
+        if ($count > $groups * $groupSize) {
             throw new \DomainException(sprintf(
-                'round_robin stage %d: groups (%d) × group_size (%d) = %d, but participant count is %d.',
+                'round_robin stage %d: %d participants exceed capacity (groups %d × group_size %d = %d).',
                 $stage->id,
+                $count,
                 $groups,
                 $groupSize,
                 $groups * $groupSize,
-                $count,
             ));
         }
 
         $totalMatches = 0;
         $bucketed     = $this->snakeDistribute($participants, $groups);
         $bestOf       = (int) ($stage->config['best_of'] ?? 1);
+        $legs         = max(1, (int) ($stage->config['legs'] ?? 1));
 
         foreach ($bucketed as $groupNumber => $groupMembers) {
             $groupNum = $groupNumber + 1; // 1-indexed for the DB
@@ -64,7 +76,7 @@ class RoundRobinGenerator implements BracketGenerator
                 $member->update(['group_number' => $groupNum]);
             }
 
-            $totalMatches += $this->generateForGroup($stage, $groupMembers, $groupNum, $bestOf);
+            $totalMatches += $this->generateForGroup($stage, $groupMembers, $groupNum, $bestOf, $legs);
         }
 
         return [
@@ -120,11 +132,13 @@ class RoundRobinGenerator implements BracketGenerator
 
     /**
      * Run the circle method on $members and persist the resulting matches.
+     * Replays the whole (n-1)-round schedule $legs times, with bracket_round
+     * offset per leg so each leg occupies a distinct round block.
      * Returns the count of matches written.
      *
      * @param  array<int, StageParticipant>  $members
      */
-    private function generateForGroup(Stage $stage, array $members, int $groupNumber, int $bestOf): int
+    private function generateForGroup(Stage $stage, array $members, int $groupNumber, int $bestOf, int $legs): int
     {
         $n = count($members);
         if ($n < 2) {
@@ -139,51 +153,157 @@ class RoundRobinGenerator implements BracketGenerator
         }
 
         // The circle: index 0 fixed; indices 1..n-1 rotate.
-        $rounds      = $n - 1;
-        $written     = 0;
-        $rotating    = array_slice($members, 1);
-        $fixed       = $members[0];
+        $rounds  = $n - 1;
+        $written = 0;
+        $fixed   = $members[0];
 
-        for ($r = 0; $r < $rounds; $r++) {
-            $position = 0;
-            $pairs    = [];
+        for ($leg = 0; $leg < $legs; $leg++) {
+            // Reset rotation at the start of each leg so leg 2 reproduces the
+            // same pair sequence as leg 1 (just shifted in bracket_round).
+            $rotating = array_slice($members, 1);
 
-            // Pair the fixed seat with the last rotating seat (index n-2).
-            $pairs[] = [$fixed, $rotating[$n - 2]];
+            for ($r = 0; $r < $rounds; $r++) {
+                $position = 0;
+                $pairs    = [];
 
-            // Pair the remaining rotating seats (indices 0..n-3) across:
-            //   (rot[0], rot[n-3]), (rot[1], rot[n-4]), ...
-            for ($i = 0; $i < ($n / 2) - 1; $i++) {
-                $pairs[] = [$rotating[$i], $rotating[$n - 3 - $i]];
-            }
+                // Pair the fixed seat with the last rotating seat (index n-2).
+                $pairs[] = [$fixed, $rotating[$n - 2]];
 
-            foreach ($pairs as [$a, $b]) {
-                if ($a === null || $b === null) {
-                    // Phantom pair — bye round for the real participant.
-                    continue;
+                // Pair the remaining rotating seats (indices 0..n-3) across:
+                //   (rot[0], rot[n-3]), (rot[1], rot[n-4]), ...
+                for ($i = 0; $i < ($n / 2) - 1; $i++) {
+                    $pairs[] = [$rotating[$i], $rotating[$n - 3 - $i]];
                 }
 
-                TournamentMatch::create([
-                    'stage_id'           => $stage->id,
-                    'bracket_round'      => $r + 1,
-                    'bracket_position'   => $position,
-                    'bracket_type'       => BracketType::Group,
-                    'group_number'       => $groupNumber,
-                    'best_of'            => $bestOf,
-                    'participant_a_type' => $a->participant_type,
-                    'participant_a_id'   => $a->participant_id,
-                    'participant_b_type' => $b->participant_type,
-                    'participant_b_id'   => $b->participant_id,
-                    'status'             => MatchStatus::Scheduled,
-                ]);
-                $position++;
-                $written++;
-            }
+                foreach ($pairs as [$a, $b]) {
+                    if ($a === null || $b === null) {
+                        // Phantom pair — bye round for the real participant.
+                        continue;
+                    }
 
-            // Rotate: move the last rotating seat to the front.
-            $last     = array_pop($rotating);
-            array_unshift($rotating, $last);
+                    TournamentMatch::create([
+                        'stage_id'           => $stage->id,
+                        'bracket_round'      => $leg * $rounds + $r + 1,
+                        'bracket_position'   => $position,
+                        'bracket_type'       => BracketType::Group,
+                        'group_number'       => $groupNumber,
+                        'best_of'            => $bestOf,
+                        'participant_a_type' => $a->participant_type,
+                        'participant_a_id'   => $a->participant_id,
+                        'participant_b_type' => $b->participant_type,
+                        'participant_b_id'   => $b->participant_id,
+                        'status'             => MatchStatus::Scheduled,
+                    ]);
+                    $position++;
+                    $written++;
+                }
+
+                // Rotate: move the last rotating seat to the front.
+                $last = array_pop($rotating);
+                array_unshift($rotating, $last);
+            }
         }
         return $written;
+    }
+
+    /**
+     * Dry-run preview — same algorithm as `generate()` (snake distribute,
+     * per-group circle method, phantom byes for odd group sizes, legs
+     * replay) but returns a structured array instead of writing match
+     * rows.
+     *
+     * Match count per group is the closed form `C(n, 2) × legs`, derivable
+     * without re-running the circle method.
+     *
+     * @param Collection<int, StageParticipant> $participants
+     */
+    public function preview(Stage $stage, Collection $participants): array
+    {
+        $count = $participants->count();
+
+        $groups    = max(1, (int) ($stage->config['groups']     ?? 1));
+        $groupSize = (int) ($stage->config['group_size'] ?? $count);
+        $legs      = max(1, (int) ($stage->config['legs']      ?? 1));
+
+        if ($count < 2) {
+            return [
+                'format'         => 'round_robin',
+                'buildable'      => false,
+                'reason'         => sprintf('round_robin requires at least 2 participants; got %d.', $count),
+                'approved_count' => $count,
+            ];
+        }
+
+        if ($count > $groups * $groupSize) {
+            return [
+                'format'         => 'round_robin',
+                'buildable'      => false,
+                'reason'         => sprintf(
+                    '%d participants exceed capacity (groups %d × group_size %d = %d).',
+                    $count,
+                    $groups,
+                    $groupSize,
+                    $groups * $groupSize,
+                ),
+                'approved_count' => $count,
+            ];
+        }
+
+        $ordered  = $participants->sortBy('seed')->values();
+        $bucketed = $this->snakeDistribute($ordered, $groups);
+
+        $matchesTotal = 0;
+        $groupPayload = [];
+
+        foreach ($bucketed as $idx => $members) {
+            $groupNum  = $idx + 1;
+            $n         = count($members);
+            $hasPhantom = $n % 2 === 1;
+            $matchesInGroup = ($n * ($n - 1) / 2) * $legs;
+            $matchesTotal  += $matchesInGroup;
+
+            $groupPayload[] = [
+                'group_number'     => $groupNum,
+                'participants'     => array_map(
+                    fn (StageParticipant $sp) => $this->participantSnapshot($sp),
+                    $members,
+                ),
+                'matches_in_group' => (int) $matchesInGroup,
+                'has_phantom_bye'  => $hasPhantom,
+            ];
+        }
+
+        return [
+            'format'         => 'round_robin',
+            'buildable'      => true,
+            'approved_count' => $count,
+            'matches_total'  => (int) $matchesTotal,
+            'config'         => [
+                'groups'      => $groups,
+                'group_size'  => $groupSize,
+                'legs'        => $legs,
+                'best_of'     => (int) ($stage->config['best_of']     ?? 1),
+                'allow_draws' => (bool) ($stage->config['allow_draws'] ?? false),
+            ],
+            'groups'         => $groupPayload,
+        ];
+    }
+
+    /**
+     * Lightweight participant snapshot for preview responses. Pulls
+     * registration_id from the transient `_registration_id` attribute
+     * set by `EntryPointResolver::compute()`.
+     */
+    private function participantSnapshot(StageParticipant $sp): array
+    {
+        $participant = $sp->getRelation('participant') ?? null;
+
+        return [
+            'seed'             => (int) $sp->seed,
+            'registration_id'  => $sp->getAttribute('_registration_id'),
+            'participant_type' => $sp->participant_type,
+            'participant_id'   => (int) $sp->participant_id,
+            'name'             => $participant?->name ?? $participant?->gamertag ?? null,
+        ];
     }
 }
